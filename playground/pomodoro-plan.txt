@@ -1,0 +1,74 @@
+番茄钟 App 实施计划
+====================
+
+形态(已确认):桌面 App,Python + Tkinter,零第三方依赖
+
+一、目标
+--------
+做一个可用的番茄钟桌面 App(经典 Pomodoro 行为):
+- 默认:专注 25 分钟 -> 短休 5 分钟;每完成 4 个专注进入长休 15 分钟
+- 控制:开始 / 暂停 / 重置 / 跳过
+- 显示:当前阶段、MM:SS 倒计时、已完成番茄数
+- 阶段结束:响铃 + 弹窗提示,并自动切换到下一阶段
+
+二、现状与前置
+--------------
+- 运行环境:Python 3.13.9
+- 界面库:Tkinter,随 Python 自带;calculator/app.py 已用 tk.Tk() + grid + bind
+- 依赖水平:现有项目零第三方依赖,番茄钟保持一致
+- 代码分工:calc.py 纯逻辑 / test_calc.py 纯 assert 且可直跑 / app.py 只管界面
+- 文档风格:calculator/README.md,含用法 + 按键表 + 运行命令
+- 番茄钟目录:当前不存在,需新建 pomodoro/
+
+三、步骤
+--------
+1. 建骨架:新建 pomodoro/ 下 timer.py(纯逻辑)、test_timer.py(测试)、app.py(界面)
+
+2. 先实现核心逻辑 timer.py(关键,完全不碰界面)
+   - 常量:WORK = 25*60,SHORT_BREAK = 5*60, LONG_BREAK = 15*60,
+           ROUNDS_BEFORE_LONG = 4
+   - 阶段枚举 Phase:WORK / SHORT_BREAK / LONG_BREAK
+   - PomodoroTimer 类,状态:phase、remaining(秒)、running、completed_work_count
+   - 方法:start() / pause() / toggle() / reset() / skip() / tick(dt=1)
+   - 关键设计:tick(dt) 只按传入 dt 递减,不读真实时钟;归零时切换阶段并返回事件
+     ("work_finished" / "break_finished"),由界面层决定怎么提示 —— 保证逻辑可单测
+   - 工具函数 format_time(seconds) -> "MM:SS"
+
+3. 写测试 test_timer.py
+   覆盖:初始状态、单次 tick 递减、专注结束转短休、第 4 次专注后进长休、
+   暂停时 tick 不减、reset 归位、skip 切换、format_time 边界(0 / 59 / 60 / 1500)
+   沿用 calculator/test_calc.py 的纯 assert + if __name__ == "__main__" 直跑写法
+
+4. 实现界面 app.py
+   - 顶部大号 Label 显示倒计时,旁边显示阶段名与"第 N 个番茄"
+   - 按钮排:开始/暂停(同一按钮切文案)、重置、跳过
+   - 用 root.after(1000, self._on_tick) 驱动:每秒调 timer.tick(1),
+     按返回事件更新界面;阶段结束时 root.bell() + messagebox.showinfo
+   - 倒计时按阶段换颜色(专注 / 短休 / 长休)
+   - 快捷键:空格 = 开始/暂停,R = 重置
+
+5. 打通并手动验证:cd pomodoro && python app.py
+   为省时间可临时把时长改成几秒验证阶段切换与提示,验证后改回默认值
+
+6. 补 README.md:运行命令、按键表、默认时长规则,参照 calculator/README.md 表格风格
+
+7. (可选后续):时长可配置、窗口置顶 attributes("-topmost", True)、
+   结束音效、完成数持久化
+
+四、验收标准
+------------
+- 逻辑正确:python test_timer.py 与 pytest test_timer.py 全绿
+- 计时准确:25 分钟专注能走到 00:00,期间每秒稳定递减
+- 阶段流转:专注->短休;第 4 次专注后->长休;长休后回专注
+- 控制可用:开始/暂停/重置/跳过 立即生效;暂停时倒计时不动
+- 提示到位:阶段结束有响铃或弹窗,不静默切换
+- 零依赖:只用 Python 标准库,python app.py 直接可跑
+
+五、风险
+--------
+- 计时漂移:after(1000, ...) 受系统调度影响会累积误差,只能承诺"约 25 分钟";
+  要精确需记录绝对结束时间戳并靠 tick 校正,当前计划未采用
+- 提示音跨平台差异:root.bell() 在部分 Linux 无声,winsound 仅 Windows;
+  跨平台音效需额外方案,当前只保证弹窗一定出现
+- 无持久化:不做数据落盘,重启后完成数清零;要统计须在第 7 步引入文件存储
+- Tkinter 可用性:个别 Linux 发行版需 apt install python3-tk,否则界面层跑不起来

@@ -1,0 +1,15 @@
+# 环境与密钥(绝不入库)
+.env
+.venv/
+# 运行产物(事件态库与工作区,均可重建/清理)
+.otter/
+*.otter.db
+demo-workspace/
+__pycache__/
+*.pyc
+.pytest_cache/
+# 构建产物与系统文件(2026-09-24 首次提交前补:均可由脚本重建,不入库)
+.DS_Store
+build/
+dist/
+otter_agent.egg-info/

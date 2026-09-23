@@ -1,0 +1,81 @@
+<!doctype html>
+<!-- otter GUI v7(HTML 渲染)。图标:lucide-static v1.47.0(ISC 许可,官方源内联);
+     样式参数参照 vesta Desktop 设计规格(色值/圆角/间距),CSS 代码自写。 -->
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <!-- 2026-09-24:入口页本体也可能被 WKWebView 缓存(子资源 ?v= 炸不掉入口)——
+       no-store 声明让入口页每次拉新;真机教训:?b= 查询串方案会让 file:// 拒载(全白窗) -->
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+  <title>otter</title>
+  <!-- 2026-09-22:版本查询串绕 WKWebView 静态缓存;marked(MIT)标准 markdown 渲染(对齐 vesta 技术路线) -->
+  <link rel="stylesheet" href="style.css?v=20260924j" /><!-- 2026-09-24j:文件图标样式(R8) -->
+</head>
+<body>
+  <!-- 左侧图标栏 -->
+  <nav id="rail">
+    <div class="logo">🦦</div>
+    <button class="rail-item active" data-page="chat" title="对话">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/></svg>
+    </button>
+    <button class="rail-item" data-page="runs" title="运行历史">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+    </button>
+    <button class="rail-item" data-page="settings" title="设置">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+    <div class="rail-bottom" id="modelBadge"></div>
+  </nav>
+
+  <!-- 对话页 -->
+  <div class="page active" id="page-chat">
+    <aside id="convs">
+      <!-- 2026-09-23 用户要求仿 vesta 历史排版:标题改"历史"+搜索框+两行卡片(卡片由 app.js 渲染) -->
+      <div class="convs-title">历史</div>
+      <input id="convSearch" type="text" placeholder="搜索" autocomplete="off" />
+      <button id="newConv">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        新会话
+      </button>
+      <div id="convList"></div>
+    </aside>
+    <main id="chatmain">
+      <div id="thread"></div>
+      <div id="composerWrap">
+        <div id="composer">
+          <textarea id="input" rows="4" placeholder="告诉 Otter 你想完成什么…"></textarea>
+          <!-- 2026-09-23 用户要求改版:Act/Plan 单键 → 「普通/计划」二选一分段控件
+               (激活态由 Python 回推 onMode 渲染;点激活段无操作) -->
+          <div id="modeSwitch" title="模式切换(常驻,下一次发送生效)">
+            <button type="button" class="seg-btn active" data-mode="normal">普通</button>
+            <button type="button" class="seg-btn" data-mode="plan">计划</button>
+          </div>
+          <button id="send" title="发送">
+            <!-- 纸飞机(lucide send,ISC);思考中由 js 切换为停止键 -->
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 运行历史页(2026-09-24 用户要求:仿 vesta 截图改整屏行分布的历史记录块,取消左右分栏;
+       块内含完成标志/会话id/内容摘要/模式/最后会话时间,中断如实标注。数据由 gui.py _runs_rows 富化) -->
+  <div class="page" id="page-runs">
+    <div class="runs-head">
+      <div class="panel-title">历史记录</div>
+      <button id="reloadRuns" title="刷新">↻</button>
+    </div>
+    <div id="runsList"></div>
+  </div>
+
+  <!-- 设置页 -->
+  <div class="page" id="page-settings">
+    <pre id="settingsBox" class="panel"></pre>
+  </div>
+
+  <footer id="statusbar">启动中…</footer>
+  <script src="marked.min.js?v=1"></script>
+  <script src="app.js?v=20260924g"></script><!-- 2026-09-24g:链接行改图标+历史按会话聚合(R8) -->
+</body>
+</html>

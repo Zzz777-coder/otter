@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- otter 独立 diff 确认窗(2026-09-23 定版:仅 diff 确认,无常驻秒表——
+     秒表按用户要求移回 chat 内的"正在思考中(已思考 Xs)"行)。
+     懒创建:仅当模型真的要写文件时才弹出,平时不存在。 -->
+<html lang="zh">
+<head><meta charset="utf-8" /><title>变更确认</title>
+<style>
+  body { margin:0; padding:8px; background:#141a26; color:#e8ecf4;
+         font-family:-apple-system,"PingFang SC",sans-serif; display:flex; flex-direction:column; height:100vh; box-sizing:border-box; }
+  #title { font-weight:700; font-size:11px; color:#f0c46a; margin:0 0 4px; }
+  #diff { flex:1; background:#0d1220; border-radius:6px; padding:6px; overflow:auto;
+          font:9.5px/1.4 ui-monospace,Menlo,monospace; white-space:pre; color:#c6d0e2; }
+  #btns { display:flex; gap:6px; margin-top:8px; }
+  button { flex:1; border:none; border-radius:6px; padding:7px 0; font:700 11px inherit; cursor:pointer; }
+  #ok { background:#2d9564; color:#fff; }
+  #no { background:#c95555; color:#fff; }
+  .add { color:#7fe0a0; } .del { color:#ff9aa2; } .hunk { color:#6ea8ff; }
+</style></head>
+<body>
+  <div id="title">📝 变更确认(采纳后写入)</div>
+  <div id="diff"></div>
+  <div id="btns"><button id="ok">✓ 采纳</button><button id="no">✗ 拒绝</button></div>
+<script>
+  "use strict";
+  window.__verdict = null;   // null=待决定 / "ok" / "no"
+  window.setDiff = function (text) {
+    window.__verdict = null;
+    var el = document.getElementById("diff");
+    el.textContent = "";
+    String(text || "").split("\n").forEach(function (line) {
+      var d = document.createElement("div");
+      d.textContent = line;
+      if (line.startsWith("+")) d.className = "add";
+      else if (line.startsWith("-")) d.className = "del";
+      else if (line.startsWith("@@")) d.className = "hunk";
+      el.appendChild(d);
+    });
+  };
+  document.getElementById("ok").onclick = function () { window.__verdict = "ok"; };
+  document.getElementById("no").onclick = function () { window.__verdict = "no"; };
+</script>
+</body></html>

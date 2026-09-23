@@ -1,0 +1,34 @@
+[project]
+name = "otter-agent"
+version = "0.1.0"
+description = "Otter — 轻量级 Python CLI 编码 Agent(为 DeepSeek 等模型一等优化;领域扩展底座)"
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=1.50",      # 模型接入:DeepSeek/OpenAI 走同一兼容协议(说明书选型:不用 litellm,减少抽象层)
+    "aiosqlite>=0.20",   # 事件态持久化(messages/runs/events/conversations 表)
+    "rich>=13.0",        # TUI 渲染(markdown/工具调用面板)
+    "mcp>=1.0",          # M4:MCP 客户端(stdio)
+    "fpdf2>=2.8",        # 2026-09-24 R6:make_pdf 原生生成真 PDF(纯 Python,防伪造二进制交付)
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+gui = [
+    "pywebview>=5",      # M4 起 GUI 为可选 extras:pip install otter-agent[gui]
+    "pillow>=10",
+]
+
+[project.scripts]
+otter = "otter.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["otter*"]
+
+# 修复(2026-09-22):GUI 的 web 静态资源必须随包分发——此前未声明 package-data,
+# 非 editable 安装的副本缺 index.html/style.css/app.js/marked.min.js → GUI 404
+[tool.setuptools.package-data]
+otter = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg"]
