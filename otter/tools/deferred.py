@@ -1,4 +1,4 @@
-"""deferred 工具 + tool_search 激活(M3,说明书 5.1/2.1 借鉴 vesta 的省 token 机制)。
+"""deferred 工具 + tool_search 激活(M3,说明书 5.1/2.1,省 token 机制)。
 
 机制:低频工具(memory_*/evidence_*)不进每步 schema(工具定义是最大 token 税之一);
 模型用 tool_search 按关键词找到后,下一步请求才携带其 schema,执行层对
@@ -13,7 +13,7 @@ from otter.tools.base import Tool
 
 
 class ToolSearchTool(Tool):
-    """关键词搜索工具目录并激活命中项;激活下一步生效(vesta 的延迟生效语义)。"""
+    """关键词搜索工具目录并激活命中项;激活下一步生效(延迟生效语义)。"""
 
     name = "tool_search"
     description = (

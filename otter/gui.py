@@ -1,8 +1,8 @@
 """Otter 桌面 GUI v7 — pywebview + HTML 渲染(2026-09-22,用户批准的路线)。
 
 取代 Tkinter(Tk 复刻 CSS 已到技术天花板,用户四轮反馈观感不足后的换道决策):
-- 前端 otter/web/(index.html + style.css + app.js):样式参数照 vesta 设计规格,
-  CSS/JS 代码自写;图标为 lucide 官方 SVG 内联(ISC 许可,与 vesta 同源且合法)。
+- 前端 otter/web/(index.html + style.css + app.js):样式参数为本项目自有设计规格,
+  CSS/JS 代码自写;图标为 lucide 官方 SVG 内联(ISC 许可)。
 - Python 侧:pywebview JsApi 桥(js→python)+ evaluate_js 回推(python→js);
   流式 delta 经 120ms 时间窗节流合并,避免高频跨桥调用。
 - 多会话/滚动压缩/事件流逻辑沿用 v5/v6;线程模型:pywebview 主线程 +
@@ -34,7 +34,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260924g"  # 2026-09-24 R8:链接行图标+历史按会话聚合(index.html ?v= 同步)
+WEB_BUILD = "20260924k"  # 2026-09-24 去溯源注释(公开库清理;index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -170,7 +170,7 @@ class OtterWebGui:
 
     async def _conv_payload(self) -> list[dict]:
         convs = await self.store.list_conversations()
-        # 2026-09-23 用户要求仿 vesta 历史排版:副行 =「9月23日 19:35 · 3 轮对话」
+        # 2026-09-23 历史排版要求:副行 =「9月23日 19:35 · 3 轮对话」
         out = []
         for c in convs:
             label = time.strftime("%m月%d日 %H:%M", time.localtime(c["updated_at"])).lstrip("0")
@@ -361,8 +361,8 @@ class OtterWebGui:
                     f"最大步数   {gui.config.max_steps}\n"
                     f"工作区     {Path.cwd()}\n"
                     f"事件库     {gui.db_path}\n\n"
-                    f"v7(2026-09-22):pywebview + 自写 HTML/CSS(样式参数照 vesta 规格);\n"
-                    f"图标 lucide(ISC)内联。实现代码全部自写,零行复制 vesta。"
+                    f"v7(2026-09-22):pywebview + 自写 HTML/CSS;\n"
+                    f"图标 lucide(ISC)内联。实现代码全部自写。"
                 )
 
         return Api()

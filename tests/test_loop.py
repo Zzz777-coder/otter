@@ -1,6 +1,6 @@
 """离线单元测试:全部用 fake adapter/store,不发任何真实请求。
 
-测试策略设计参考 vesta 的离线测试取向(说明书第 7 章:测试全离线)。
+测试策略为离线测试取向(说明书第 7 章:测试全离线)。
 运行:python -m pytest tests/ -v(测试体用 asyncio.run 手动驱动,不依赖插件)
 """
 
@@ -122,7 +122,7 @@ def test_repeated_tool_call_termination():
 
 
 def test_usage_none_semantics_preserved():
-    """usage 未知(None)时,累加结果仍为 None,不伪装成 0(设计参考 vesta 记账语义)。"""
+    """usage 未知(None)时,累加结果仍为 None,不伪装成 0(记账语义)。"""
     adapter = FakeAdapter([
         ModelResponse(content=None, tool_calls=[ToolCall(id="c", name="echo", arguments={})], usage=ModelUsage(None, None)),
         ModelResponse(content="done", usage=ModelUsage(10, 5)),

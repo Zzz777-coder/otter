@@ -1,7 +1,7 @@
-"""repo map(M3,说明书 P2——aider 的确定性索引思想,自行实现)。
+"""repo map(M3,说明书 P2——确定性索引思想,自行实现)。
 
 tree-sitter 提取符号(定义),import 关系建引用图,迭代传播权重排序
-(aider graph ranking 的简化版),在 token 预算内输出紧凑符号地图:
+(graph ranking 的简化版),在 token 预算内输出紧凑符号地图:
   path: ClassName, func_a, func_b
 弱模型不读全库也能"知道有什么";纯本地确定性,零模型调用。
 """

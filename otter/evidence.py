@@ -1,4 +1,4 @@
-"""Evidence 可逆压缩(M2,说明书 5.2"最值得移植的 vesta 思想")。
+"""Evidence 可逆压缩(M2,说明书 5.2)。
 
 机制:工具结果在截断/进模型之前,全文不可变归档(绑定 run/tool_call,sha256 校验);
 给模型的压缩文本附 evidence_id;模型需要原文时用 evidence_read 按需取回——

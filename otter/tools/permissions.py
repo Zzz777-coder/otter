@@ -1,6 +1,6 @@
 """权限规则引擎 + 审批门(M2,说明书 5.5 三层 fail-closed 的前两层)。
 
-设计参考 vesta app/tools/permissions/policy.py 的思想(未命中=ASK、DENY 优先、
+权限策略思想(未命中=ASK、DENY 优先、
 规则可固化),全部重新实现:
 - 规则来源:内置默认表 → 用户规则文件(~/.otter/permissions.json,审批"总是允许"落盘)
   → 会话记忆(审批"本次会话都允许",进程内);
@@ -83,7 +83,7 @@ class PermissionEngine:
             return []  # 规则文件损坏:退回内置默认(fail-closed 方向)
 
     def add(self, rule: Rule) -> None:
-        """审批"总是允许/拒绝"时落盘固化(设计参考 vesta:批准可固化为规则)。"""
+        """审批"总是允许/拒绝"时落盘固化(批准可固化为规则)。"""
         self.user_rules.append(rule)
         self.rules_file.parent.mkdir(parents=True, exist_ok=True)
         data = {"rules": [

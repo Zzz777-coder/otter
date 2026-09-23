@@ -1,6 +1,6 @@
 """REPL 与渲染(M1 版):流式打屏 + 工具调用实时展示 + 斜杠命令。
 
-设计取向(说明书第 6 章):CLI 不需要进程间 RPC(刻意排除 vesta 的 Desktop/WS 层),
+设计取向(说明书第 6 章):CLI 不需要进程间 RPC(刻意不做 Desktop/WS 层),
 事件流直接经回调进终端渲染。
 M1 新增命令:/init 生成 AGENTS.md · /undo 回滚 git · /plan /act 只读/执行模式 ·
 /context 查看压缩与预算状态。
@@ -85,7 +85,7 @@ async def _dispatch(loop: AgentLoop, store, history: list[Message], state: Summa
             plan_context=plan_context,  # Plan Mode v2:采纳计划注入
         )
         # M4(2026-09-22):Run 成功后过 Skill 提炼(watermark 去重+候选落盘;
-        # 失败静默不影响主结果——vesta 的隔离取向)
+        # 失败静默不影响主结果——隔离取向)
         if result is not None and result.ok and loop.adapter is not None:
             try:
                 from otter.skills import maybe_distill

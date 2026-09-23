@@ -1,13 +1,13 @@
-"""双层记忆(M3,说明书 5.3,设计参考 vesta app/memory/ 思想、全部重实现)。
+"""双层记忆(M3,说明书 5.3)。
 
 分层:
 - Core(.otter/memory/CORE.md):用户长期事实,key 管理条目,≤2000 token,每 Run 常驻注入;
   只经 memory_core_update 工具更新(带出处原话),模型不能整文件覆盖。
 - Ordinary(.otter/memory/active/M###.md):单条知识,YAML front matter 为权威元数据
   (title/summary/revision/access_count/status),active 上限 25,超限归档;
-  INDEX.md 与 FTS5 索引均为可重建投影(文件是唯一权威——vesta 的"Markdown 管知识"取向)。
+  INDEX.md 与 FTS5 索引均为可重建投影(文件是唯一权威)。
 
-一致性铁律(自 vesta 学到的防幻觉写):
+一致性铁律(防幻觉写):
 - UPDATE 必须本 Run 内 memory_read 成功过,且 revision 乐观锁匹配,否则拒绝;
 - 召回不写历史、不加 access_count、不授权反思更新——注入的只是 cue(标题+摘要+片段)。
 """
@@ -140,7 +140,7 @@ class FileMemoryStore:
         return e
 
     def update(self, mid: str, expected_revision: int, **changes) -> MemoryEntry | None:
-        """乐观锁:revision 不匹配即拒绝(vesta 的防幻觉写一致性)。"""
+        """乐观锁:revision 不匹配即拒绝(防幻觉写一致性)。"""
         e = self.read(mid)
         if e is None or e.revision != expected_revision:
             return None
@@ -175,7 +175,7 @@ class FileMemoryStore:
         self._rebuild_index()
 
     def _rebuild_index(self) -> None:
-        """INDEX.md 与 FTS5:可删重建的投影,失败不影响主流程(vesta 降级取向)。"""
+        """INDEX.md 与 FTS5:可删重建的投影,失败不影响主流程(降级取向)。"""
         entries = self.list_active()
         index = "\n".join(f"- {e.mid} {e.title}:{e.summary}" for e in entries)
         (self.root / "INDEX.md").write_text(index or "(空)", encoding="utf-8")
@@ -210,7 +210,7 @@ class FileMemoryStore:
                 if ql in e.title.lower() or ql in e.summary.lower() or ql in e.content.lower()][:limit]
 
 
-# ── 确定性召回 + 反思门控(设计参考 vesta recall.py / reflection_gate.py)──
+# ── 确定性召回 + 反思门控 ──
 
 _RECALL_SIGNAL = re.compile(r"记住|以后|下次|偏好|习惯|总是|不要忘|remember|prefer|always")
 

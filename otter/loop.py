@@ -1,6 +1,6 @@
 """Agent Loop——otter 的心脏(M1 版)。
 
-设计参考 vesta app/agent/loop.py 的循环组织思想,全部重新实现:
+循环组织(全部自行实现):
 每个 Step 五拍:① 停止/防御评估 → ② 请求组装(system+AGENTS.md+摘要+尾部历史) →
 ③ 压缩(估算超线 → 滚动摘要,作用于请求视图,原始历史不动) → ④ 流式调模型 →
 ⑤ 回复分岔(工具轮 / 最终答案)。
@@ -38,7 +38,7 @@ from otter.prompts import (  # 2026-09-23 提示词套件重构:全部话术单�
 from otter.tools.base import ToolRegistry
 from otter.store import Store
 
-# 停止原因三族(设计参考 vesta 的停止出口分类:正常 / 预算 / 兜底;预算三段收口是 M2)
+# 停止原因三族(正常 / 预算 / 兜底;预算三段收口是 M2)
 STOP_FINAL = "final_answer"        # 正常:模型给出纯文本最终答案
 STOP_MAX_STEPS = "max_steps"       # 正常收尾:步数用尽,经收尾专用步总结
 STOP_REPEATED = "repeated_tool"    # 兜底:同签名工具调用累计 3 次,防弱模型原地打转
@@ -53,8 +53,8 @@ MODE_PLAN = "plan"
 PLAN_TOOLS = {"read_file", "grep", "glob", "repo_map", "tool_search"}
 WRITE_TOOLS = {"write_file", "edit_file"}            # 成功后触发 git 自动提交
 
-# 2026-09-23 提示词套件重构:BASE_SYSTEM 移至 otter/prompts.py(vesta 五段式重写,
-# 融合 Fable 5 决策示例/Scaling/正反例/反幻觉技术);此处仅引用,单一来源调词
+# 2026-09-23 提示词套件重构:BASE_SYSTEM 移至 otter/prompts.py(五段式重写,
+# 融合决策示例/Scaling/正反例/反幻觉技术);此处仅引用,单一来源调词
 
 _REPEAT_LIMIT = 3
 
@@ -124,7 +124,7 @@ class AgentLoop:
         memory_bundle=None,   # M3:(store, core, ctx) 三元组;None=记忆关闭
         edit_format: str = "auto",  # M3:whole/diff/auto(按模型自适应弱模型整文件替换)
         activated_tools: set | None = None,  # M3:与 ToolSearchTool 共享的激活名单(同一对象!)
-        run_budget: int = 300_000,  # Run 级费用预算(计费 token;0=禁用)——设计参考 vesta 三段,2026-09-22 补装
+        run_budget: int = 300_000,  # Run 级费用预算(计费 token;0=禁用),2026-09-22 补装
         base_system: str | None = None,  # 2026-09-23 套件化:子代理等可覆盖系统提示(修 SUBAGENT_SYSTEM 死代码)
     ) -> None:
         self.adapter = adapter
@@ -199,7 +199,7 @@ class AgentLoop:
             return
         compressible = messages[state.covered:cut]
         summary, usage = await self.summarizer.summarize(compressible, state.summary)
-        # 压缩调用本身记账(设计参考 vesta"压缩不免费"的结论):由调用方统一累加
+        # 压缩调用本身记账("压缩不免费"):由调用方统一累加
         self._last_compress_usage = usage
         if summary is None:
             return  # 校验失败/摘要不够短:放弃本次,下次触发线再试
@@ -259,7 +259,7 @@ class AgentLoop:
         state = summary_state or SummaryState()
 
         # M3 确定性召回:纯规则拼查询(当前消息+近期用户消息+摘要目标),每 Run 一次快照;
-        # 注入的只是 cue,不写历史、不加 access_count(vesta 的召回纪律)
+        # 注入的只是 cue,不写历史、不加 access_count(召回纪律)
         self._recall_text = ""
         recalled = False
         if self.memory_bundle:
@@ -291,7 +291,7 @@ class AgentLoop:
         total_tool_calls = 0
         signature_counts: Counter[tuple[str, str]] = Counter()
 
-        # ── Run 级费用预算三段(2026-09-22 补装,设计参考 vesta app/agent/budget.py)──
+        # ── Run 级费用预算三段(2026-09-22 补装)──
         # 口径:真实 usage 的 input+output 合计(事后问责口径);三段一次性熔断 flag。
         # 修正(2026-09-23 套件化):local 标志改名 warned/finalizing——原变量名
         # budget_finalizing 与 prompts.py 导入的同名函数冲突(bool 不可调用,
@@ -305,7 +305,7 @@ class AgentLoop:
         def _check_budget(step_now: int) -> tuple[str, bool] | None:
             """返回 (段位, 是否补发warning);'hard' 表示应立即终止。
             跨段(如一次调用从 60% 以下直接跳到 85%+)时先补发 warning——
-            对齐 vesta 的"预警补发"先例(2026-09-22,离线测试暴露 elif 跳段)。"""
+            沿"预警补发"先例(2026-09-22,离线测试暴露 elif 跳段)。"""
             nonlocal warned, finalizing
             if not self.run_budget:
                 return None
@@ -399,7 +399,7 @@ class AgentLoop:
 
             # ⑤ 回复分岔
             if not resp.tool_calls:
-                # Plan Mode v2:计划产物轻校验 + 落盘(不改写终稿——与 vesta 的差异点)
+                # Plan Mode v2:计划产物轻校验 + 落盘(不改写终稿)
                 if mode == MODE_PLAN:
                     from otter.plans import plan_is_valid, save_plan
 
@@ -447,10 +447,10 @@ class AgentLoop:
                 write_ok = False
                 cur_diff = None  # R6:本迭代的文本 diff(make_pdf 无 diff,保持 None)
                 if mode == MODE_PLAN and tc.name not in PLAN_TOOLS:
-                    # Plan 只读硬校验(设计参考 vesta:白名单外调用在执行层拦截)
+                    # Plan 只读硬校验(白名单外调用在执行层拦截)
                     result_text = f"[otter] PLAN 模式为只读,禁止调用 {tc.name};请仅检索与分析,输出计划。"
                 elif tool is not None and tool.deferred and tc.name not in self._activated_tools:
-                    # M3 deferred 硬校验:未激活即调用 → 拒绝并引导(vesta 的执行层拦截语义)
+                    # M3 deferred 硬校验:未激活即调用 → 拒绝并引导(执行层拦截)
                     result_text = (f"[otter] 工具 {tc.name} 未激活。请先调用 tool_search 搜索并激活它,"
                                    f"下一步即可使用。")
                 elif tool is None:
@@ -598,7 +598,7 @@ class AgentLoop:
                         STOP_REPEATED, step, model_calls, total_tool_calls, usage or ModelUsage(),
                     )
 
-        # 收尾专用步:零工具表,从结构上杜绝再调工具(设计参考 vesta 的 +1 收尾步)
+        # 收尾专用步:零工具表,从结构上杜绝再调工具(+1 收尾步)
         # 2026-09-23 套件化:文案移至 prompts.py(文案不变)
         await self._emit(run_id, "RUN_FINALIZING", {"step": max_steps})
         messages.append(Message(role="user", content=MAX_STEPS_FINAL_MESSAGE))

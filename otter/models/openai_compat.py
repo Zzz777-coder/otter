@@ -1,6 +1,6 @@
 """OpenAI 兼容 adapter(DeepSeek / OpenAI / Qwen / Ollama 同一协议)。
 
-设计参考 vesta app/models/providers/openai_compatible.py 的 adapter 思想:
+adapter 设计思想:
 内部类型 ↔ 厂商 wire 格式的转换全部收敛在此层;loop 只见 complete_stream。
 流式工具调用的增量聚合(fragment 按 index 拼接 arguments JSON)是本层的关键细节。
 """

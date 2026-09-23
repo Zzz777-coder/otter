@@ -1,6 +1,6 @@
 """MCP 客户端(M4,说明书 P2:stdio 传输,扩展工具生态)。
 
-设计:每个 server 一个隔离会话(单 server 失败不影响其他——vesta 取向);
+设计:每个 server 一个隔离会话(单 server 失败不影响其他——隔离取向);
 工具以 deferred 形态注册(经 tool_search 激活,不占常驻 schema);
 配置:`~/.otter/mcp.json`,如 {"servers": {"weather": {"command": "uvx", "args": ["mcp-weather"]}}}
 """
@@ -23,7 +23,7 @@ def load_mcp_config() -> dict:
     try:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8")).get("servers", {})
     except json.JSONDecodeError:
-        return {}  # 配置损坏不阻断启动,只跳过 MCP(vesta 取向)
+        return {}  # 配置损坏不阻断启动,只跳过 MCP(降级取向)
 
 
 def _wire_schema_to_ours(schema: dict | None) -> dict:

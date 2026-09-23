@@ -1,6 +1,6 @@
 """M0 内置三工具:bash / read_file / write_file。
 
-截断策略设计参考 vesta app/tools/executor.py 的"资源防线"(head+tail 保两头);
+截断策略为"资源防线"(head+tail 保两头);
 M0 尚无 Evidence 归档(说明书 M2),被截断的原文暂不可回取——这是刻意的分期。
 """
 
@@ -13,7 +13,7 @@ from typing import Any
 
 from otter.tools.base import Tool
 
-# 输出截断:保头 4000 + 尾 2000,上限 8000 字符(设计参考 vesta 的截断参数,弱上下文模型的护栏)
+# 输出截断:保头 4000 + 尾 2000,上限 8000 字符(弱上下文模型的护栏)
 _HEAD, _TAIL, _LIMIT = 4000, 2000, 8000
 
 

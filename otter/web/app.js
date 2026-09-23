@@ -1,7 +1,7 @@
 // otter GUI v8 — 前端桥与渲染。
-// 渲染层(2026-09-22 第四次修正,对齐 vesta 技术路线):弃用全部手写 markdown
-// 解析器(三轮启发式修补均有边界错误),改用 marked(MIT,与 vesta 的
-// react-markdown+gfm 同类标准库)+ breaks 单换行;代码框为 marked 输出的
+// 渲染层(2026-09-22 第四次修正):弃用全部手写 markdown
+// 解析器(三轮启发式修补均有边界错误),改用 marked(MIT
+// 标准库)+ breaks 单换行;代码框为 marked 输出的
 // 后处理增强(GitHub 式头部条+复制键)。
 // Python 侧通过 evaluate_js 调 window.otterUI.*;JS 通过 window.pywebview.api.* 调 Python。
 "use strict";
@@ -424,7 +424,7 @@ function showArtifactCard(p) {
   mountAboveThinking(buildArtifactCard(p));  // #43:统一挂载(含悬空守卫)
 }
 
-// ── 2026-09-24 R5:文件变更链接行(仿 vesta ⚙/📎 行)──
+// ── 2026-09-24 R5:文件变更链接行(⚙/📎 行)──
 // 「📎 已修改 product.py (+2/-1)」:文件名为超链接,点击在行下方内联展开/收起预览卡
 function showFileLink(p) {
   const line = document.createElement("div");
@@ -548,7 +548,7 @@ document.querySelectorAll(".rail-item").forEach((btn) => {
   });
 });
 
-// 会话列表(2026-09-23 用户要求仿 vesta 历史排版:两行卡片+搜索过滤;
+// 会话列表(2026-09-23 历史排版要求:两行卡片+搜索过滤;
 // 副行 sub 由 Python 侧 _conv_payload 生成「9月23日 19:35 · 3 轮对话」)
 let lastConvs = [];
 function renderConvs(convs) {
@@ -590,7 +590,7 @@ $("#newConv").addEventListener("click", async () => {
   $("#statusbar").textContent = "新会话(发送第一条消息时创建)";
 });
 
-// 运行历史(2026-09-24 用户要求:仿 vesta 截图,整屏行分布的历史记录块,不再左右分栏;
+// 运行历史(2026-09-24 用户要求:整屏行分布的历史记录块,不再左右分栏;
 // 块内=完成标志/会话id/内容摘要/模式/最后会话时间,中断如实标注——字段由 gui.py _runs_rows 生成)
 async function loadRuns() {
   const runs = await window.pywebview.api.get_runs();

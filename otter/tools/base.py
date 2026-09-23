@@ -1,6 +1,6 @@
 """工具子系统:Tool 抽象与注册表。
 
-设计参考 vesta app/tools/registry.py 的注册表思想(M0 最小版;权限/审批/沙箱
+工具注册表思想(M0 最小版;权限/审批/沙箱
 三层 fail-closed 与 deferred 工具按说明书路线图在 M2/M3 引入)。
 """
 

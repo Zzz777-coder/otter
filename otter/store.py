@@ -1,6 +1,6 @@
 """事件态持久化:SQLite(messages / runs / events 三表)。
 
-设计参考 vesta 的持久化取向——"SQLite 管事件与状态,Markdown 管知识事实"。
+持久化取向——"SQLite 管事件与状态,Markdown 管知识事实"(2026-09-24 去溯源字样)。
 M0 只写不读(审计与验收用:Run 全程 Trace 落库);会话恢复读取在 M1/M2 实现。
 库文件固定在 <cwd>/.otter/otter.db,与工作区绑定。
 """
@@ -40,7 +40,7 @@ class Store:
             );
             CREATE TABLE IF NOT EXISTS messages(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sequence INTEGER NOT NULL,       -- 稳定序号(设计参考 vesta 的会话消息序号设计)
+                sequence INTEGER NOT NULL,       -- 稳定序号(会话消息稳定排序)
                 run_id INTEGER,
                 role TEXT NOT NULL,
                 content TEXT,
@@ -74,7 +74,7 @@ class Store:
                 sha256 TEXT NOT NULL,
                 created_at REAL NOT NULL
             );
-            -- M2:Checkpoint——中断恢复的最小边界(设计参考 vesta app/checkpoint 语义)
+            -- M2:Checkpoint——中断恢复的最小边界
             CREATE TABLE IF NOT EXISTS run_checkpoints(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_id INTEGER NOT NULL,
@@ -140,7 +140,7 @@ class Store:
         return int(cur.lastrowid)
 
     async def list_conversations(self, limit: int = 50) -> list[dict]:
-        # 2026-09-23 用户要求仿 vesta 历史排版:卡片副行需要「N 轮对话」——
+        # 2026-09-23 历史排版要求:卡片副行需要「N 轮对话」——
         # assistant 消息数作轮数,子查询一次拿齐(避免 N+1)
         cursor = await self._db.execute(
             "SELECT c.id, c.title, c.updated_at,"

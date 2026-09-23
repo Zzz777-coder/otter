@@ -12,22 +12,22 @@ from otter import loop, plans, prompts
 from otter.subagent import SubagentTool
 
 
-# ── A. BASE_SYSTEM 五段纪律齐全(vesta 式结构防退化)──────────────
+# ── A. BASE_SYSTEM 五段纪律齐全(结构防退化)──────────────
 
 def test_base_system_has_five_disciplines():
     s = prompts.BASE_SYSTEM
     # 五段关键词:身份/工具纪律/上下文意识/产物发布/排版
     assert "你是 otter" in s
     assert "工具纪律" in s and "grep/glob/read_file" in s
-    assert "不要凭记忆猜测" in s                    # 反幻觉(vesta 段2 精神)
-    assert "上下文意识" in s and "不要凭摘要补造" in s  # 压缩反幻觉(vesta 段4)
+    assert "不要凭记忆猜测" in s                    # 反幻觉(段2)
+    assert "上下文意识" in s and "不要凭摘要补造" in s  # 压缩反幻觉(段3;2026-09-24 修正段号)
     assert "产物发布" in s and "artifact_publish" in s
-    assert "中间文件、临时文件不要发布" in s           # Fable 正反例清单(负面清单)
+    assert "中间文件、临时文件不要发布" in s           # 正反例清单(负面清单)
     assert "排版" in s and "本质结论" in s             # 用户 2026-09-22 定版保留
 
 
 def test_base_system_decision_examples_and_scaling():
-    """Fable 5 技术:决策示例 + 工具量化 Scaling 必须在工具纪律段。"""
+    """提示技术:决策示例 + 工具量化 Scaling 必须在工具纪律段。"""
     s = prompts.BASE_SYSTEM
     assert "判断示例" in s and "→直接回答" in s       # 决策示例(examples)
     assert "次数与任务复杂度匹配" in s                 # Scaling(core_search_behaviors #2)

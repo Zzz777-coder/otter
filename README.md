@@ -39,7 +39,7 @@ REPL 斜杠命令(M1):`/init` 生成 AGENTS.md · `/undo` 回滚上一组 otter 
 | M3.5 | diff 预览(REPL 内联/GUI 采纳卡片)+ GUI 审批卡片 + 前端冒烟测试(node,11 断言) | ✅ 2026-09-22(edit 前必见 diff;GUI 卡片采纳才写盘,fail-closed) |
 | M4 | MCP 客户端(stdio) + 子代理 explore + Skill Learning(watermark+人工确认) + Artifact 产物系统 + **Replan 领域包(get_schedule/simulate_change/commit_reschedule)** + 打包分发 | ✅ 2026-09-22(急单重排真机演示:沙盘对比→提交→延误 449→0;Skill 从重计划 Trace 提炼 fault-impact-sandbox-check 并人工转正;pip install 后干净目录跑通;37 测试) |
 | M-COMPUTER | 屏幕操控(机动,集成优先不自研) | 排 M4 后 |
-| M-GUI | v7(2026-09-22):pywebview+HTML 渲染,vesta 观感(规格参数照抄+CSS 自写,lucide 图标 ISC 内联) | ✅ |
+| M-GUI | v7(2026-09-22):pywebview+HTML 渲染(CSS/JS 自写,lucide 图标 ISC 内联) | ✅ |
 
 ## 测试
 
@@ -47,6 +47,3 @@ REPL 斜杠命令(M1):`/init` 生成 AGENTS.md · `/undo` 回滚上一组 otter 
 .venv/bin/python -m pytest tests/ -v   # 全离线,不发真实请求
 ```
 
-## 致谢
-
-核心设计思想学习自 **Kong-lh-rgb/vesta**(未含许可证,故全部重新实现)、Claude Code 的公开设计、aider 的 repo map 方案。每处借鉴在代码注释中标明来源模块。

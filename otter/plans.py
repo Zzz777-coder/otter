@@ -1,8 +1,8 @@
-"""Plan Mode v2(产品经理模式,2026-09-23;设计参考 vesta PLAN 的产物契约思想,全部重写)。
+"""Plan Mode v2(产品经理模式,2026-09-23;产物契约思想,全部重写)。
 
 闭环:调查(只读)→ 结构化计划(固定小节)→ 落盘 .otter/plans/ → 人审 →
 采纳后以 <approved_plan> 注入 system 重跑(执行模式)。
-otter 不引入 Task 实体(vesta 的 PENDING Task),计划即 markdown 产物——轻量化取舍。
+otter 不引入 Task 实体,计划即 markdown 产物——轻量化取舍。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ PLAN_SECTION_REQUIRED = "## 步骤"
 
 
 def plan_is_valid(final_text: str) -> bool:
-    """轻校验(对齐 vesta 的 exit validation 思想,但不改写终稿):
+    """轻校验(不改写终稿):
     必须含"## 步骤"小节才算一份合格计划。"""
     return PLAN_SECTION_REQUIRED in (final_text or "")
 

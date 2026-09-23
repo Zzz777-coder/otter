@@ -1,4 +1,4 @@
-"""Artifact 产物子系统(M4,说明书 5.7;设计参考 vesta app/artifact/ 思想,全部重写)。
+"""Artifact 产物子系统(M4,说明书 5.7)。
 
 分工:Evidence=过程原文(给模型回读);Artifact=最终交付物(给人打开)。
 artifact_publish 工具(deferred):复制到 .otter/artifacts/<id>/,记 sha256 与归属;

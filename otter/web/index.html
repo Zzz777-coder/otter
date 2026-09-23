@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- otter GUI v7(HTML 渲染)。图标:lucide-static v1.47.0(ISC 许可,官方源内联);
-     样式参数参照 vesta Desktop 设计规格(色值/圆角/间距),CSS 代码自写。 -->
+     样式参数为本项目自有设计规格(色值/圆角/间距),CSS 代码自写。 -->
 <html lang="zh">
 <head>
   <meta charset="utf-8" />
@@ -8,8 +8,8 @@
        no-store 声明让入口页每次拉新;真机教训:?b= 查询串方案会让 file:// 拒载(全白窗) -->
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
   <title>otter</title>
-  <!-- 2026-09-22:版本查询串绕 WKWebView 静态缓存;marked(MIT)标准 markdown 渲染(对齐 vesta 技术路线) -->
-  <link rel="stylesheet" href="style.css?v=20260924j" /><!-- 2026-09-24j:文件图标样式(R8) -->
+  <!-- 2026-09-22:版本查询串绕 WKWebView 静态缓存;marked(MIT)标准 markdown 渲染 -->
+  <link rel="stylesheet" href="style.css?v=20260924k" /><!-- 2026-09-24k:去溯源注释(公开库清理) -->
 </head>
 <body>
   <!-- 左侧图标栏 -->
@@ -30,7 +30,7 @@
   <!-- 对话页 -->
   <div class="page active" id="page-chat">
     <aside id="convs">
-      <!-- 2026-09-23 用户要求仿 vesta 历史排版:标题改"历史"+搜索框+两行卡片(卡片由 app.js 渲染) -->
+      <!-- 2026-09-23 历史排版要求:标题改"历史"+搜索框+两行卡片(卡片由 app.js 渲染) -->
       <div class="convs-title">历史</div>
       <input id="convSearch" type="text" placeholder="搜索" autocomplete="off" />
       <button id="newConv">
@@ -59,7 +59,7 @@
     </main>
   </div>
 
-  <!-- 运行历史页(2026-09-24 用户要求:仿 vesta 截图改整屏行分布的历史记录块,取消左右分栏;
+  <!-- 运行历史页(2026-09-24 用户要求:整屏行分布的历史记录块,取消左右分栏;
        块内含完成标志/会话id/内容摘要/模式/最后会话时间,中断如实标注。数据由 gui.py _runs_rows 富化) -->
   <div class="page" id="page-runs">
     <div class="runs-head">
@@ -76,6 +76,6 @@
 
   <footer id="statusbar">启动中…</footer>
   <script src="marked.min.js?v=1"></script>
-  <script src="app.js?v=20260924g"></script><!-- 2026-09-24g:链接行改图标+历史按会话聚合(R8) -->
+  <script src="app.js?v=20260924k"></script><!-- 2026-09-24k:去溯源注释(公开库清理) -->
 </body>
 </html>

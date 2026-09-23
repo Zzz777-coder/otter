@@ -1,8 +1,8 @@
 """模型层厂商无关类型。
 
-设计参考 vesta app/models/types.py 的思想:内部统一 Message/ToolDefinition 等类型,
+核心思想:内部统一 Message/ToolDefinition 等类型,
 厂商差异收敛在 adapter 一层,loop 与工具子系统不感知任何厂商 API 形状。
-(红线遵守:仅借鉴类型分层思想,全部重新实现;M0 用 dataclass,M1 引入摘要 schema
+(M0 用 dataclass,M1 引入摘要 schema
 校验时再按说明书迁 pydantic v2。)
 """
 
@@ -38,7 +38,7 @@ class Message:
 class ModelUsage:
     """事后记账用的真实用量(来自厂商响应)。
 
-    设计参考 vesta 的"两套计数器"结论:事前估算(tiktoken,M1 引入)管预防,
+    "两套计数器"结论:事前估算(tiktoken,M1 引入)管预防,
     事后真实 usage 管问责;未知字段保持 None 而非伪装成 0。
     """
 

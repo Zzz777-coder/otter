@@ -142,7 +142,7 @@ const diffOut = py("from otter.diffpreview import preview_edit;"
 check("preview_edit 产出 unified diff(- 旧行)", diffOut.includes("-    return 1"));
 check("preview_edit 产出 unified diff(+ 新行)", diffOut.includes("+    return 2"));
 
-// 7) 「普通/计划」分段控件(2026-09-23 用户要求改版)+ vesta 式历史卡片
+// 7) 「普通/计划」分段控件(2026-09-23 用户要求改版)+ 历史卡片
 //    覆写 querySelector/querySelectorAll 返回持久桩,捕获分段激活态与状态栏写入值
 const segNormal = new El("button"); segNormal.className = "seg-btn active"; segNormal.dataset = { mode: "normal" };
 const segPlan = new El("button"); segPlan.className = "seg-btn"; segPlan.dataset = { mode: "plan" };
@@ -161,7 +161,7 @@ check("onMode(plan) 状态栏带 [PLAN]", String(statusEl.textContent).includes(
 global.otterUI.onMode({ mode: "normal" });
 check("onMode(normal) 普通段激活", segNormal.classList.contains("active") && !segPlan.classList.contains("active"));
 
-// 7b) 历史卡片渲染(仿 vesta:两行卡片+搜索过滤;sub 副行来自 Python _conv_payload)
+// 7b) 历史卡片渲染(两行卡片+搜索过滤;sub 副行来自 Python _conv_payload)
 global.otterUI.onConversations([
   { id: 1, title: "为产品添加库存预警功能并覆盖测试", active: true, sub: "9月23日 19:35 · 3 轮对话" },
   { id: 2, title: "写周报", active: false, sub: "9月22日 10:00 · 1 轮对话" },

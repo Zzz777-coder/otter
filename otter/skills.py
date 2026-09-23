@@ -1,4 +1,4 @@
-"""Skill Learning 最小版(M4,说明书 5.4;设计参考 vesta app/skill_learning/ 思想,全部重写)。
+"""Skill Learning 最小版(M4,说明书 5.4)。
 
 流水线(最小版):Run 结束后(可关)→ 用 main 模型从"本次任务+最终答案"提炼
 候选 Skill(严格 JSON)→ 落候选文件(pending)→ **人工确认才转正**(绝不自动生效)。

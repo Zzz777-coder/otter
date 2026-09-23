@@ -109,7 +109,7 @@ from otter.prompts import REFLECT_PROMPT
 
 async def run_reflection(adapter, user_message: str, final_text: str,
                          store: FileMemoryStore, core: CoreMemory, ctx: dict) -> str:
-    """Run 后反思(FINAL 时调用):单动作,失败只返回诊断文本,绝不影响主结果(vesta 取向)。"""
+    """Run 后反思(FINAL 时调用):单动作,失败只返回诊断文本,绝不影响主结果(隔离取向)。"""
     from otter.models.types import Message
 
     convo = f"[用户]{user_message[:1500]}\n[助手结论]{final_text[:1500]}"

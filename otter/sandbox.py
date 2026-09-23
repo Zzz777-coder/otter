@@ -1,6 +1,6 @@
 """bash 沙箱层(M2,说明书 5.5 第三层)。
 
-设计参考 vesta app/sandbox/ 的取向(平台 Backend + fail-closed:无法强制即拒绝,
+沙箱取向(平台 Backend + fail-closed:无法强制即拒绝,
 绝不静默降级),全部重新实现:
 - SeatbeltBackend:macOS sandbox-exec,最小 profile = 写权限限本目录(先禁全 home 再放开 cwd),
   拒写 .git、拒读 .env;网络 M2 暂放行(取舍注释:全断会让 pip/curl 类任务全部失败,
