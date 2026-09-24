@@ -240,13 +240,20 @@ body {
 }
 .run-item:last-child { border-bottom: none; }
 .run-item:hover { background: rgba(78, 92, 112, 0.06); }
-.run-left { flex: 0 0 auto; display: flex; flex-direction: column; gap: 3px; }
+/* 2026-09-24 用户要求:历史记录所有会话摘要对齐——左栏(完成标志+会话id)宽度
+   随内容漂移("会话 #N · M 次运行"/"Run #N" 长短不一)导致摘要起点不齐;
+   定宽 118px 后摘要列左缘统一,配合行 gap 22px 整体右移留出呼吸 */
+.run-left { flex: 0 0 118px; display: flex; flex-direction: column; gap: 3px; }
 .run-flag { font-size: 12.5px; font-weight: 600; }
 .run-flag.ok { color: var(--ok); }
 .run-flag.no { color: var(--warn); }
 .run-ids { font-size: 11px; color: var(--muted); }
 .run-title {
   flex: 1 1 auto; min-width: 0;
+  /* 2026-09-24 用户反馈:长摘要与绝对定位居中的「普通/计划」模式字重合——
+     限宽到行中线下 90px 处截断(模式字宽约 25px,余量充足),
+     溢出部分由既有 ellipsis 省略号接住 */
+  max-width: calc(50% - 90px);
   font-weight: 600; color: var(--text); font-size: 13px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
