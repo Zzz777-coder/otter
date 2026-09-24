@@ -9,6 +9,7 @@ dependencies = [
     "rich>=13.0",        # TUI 渲染(markdown/工具调用面板)
     "mcp>=1.0",          # M4:MCP 客户端(stdio)
     "fpdf2>=2.8",        # 2026-09-24 R6:make_pdf 原生生成真 PDF(纯 Python,防伪造二进制交付)
+    "httpx2>=2",         # 2026-09-24 Anthropic 原生 adapter 的 HTTP/SSE 层(openai 3.x 同源依赖)
 ]
 
 [project.optional-dependencies]

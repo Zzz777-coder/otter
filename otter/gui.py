@@ -27,7 +27,6 @@ from otter import __version__
 from otter.config import Config
 from otter.loop import MODE_NORMAL, MODE_PLAN, AgentLoop, SummaryState
 from otter.models.types import Message
-from otter.models.openai_compat import OpenAICompatAdapter
 from otter.store import Store
 from otter.tools.builtin import builtin_registry
 
@@ -87,7 +86,7 @@ class OtterWebGui:
 
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(target=self._run_loop, daemon=True)
-        self.adapter: OpenAICompatAdapter | None = None
+        self.adapter = None  # 2026-09-24 起:具体类型由 build_adapter 工厂决定(原生/兼容层)
         self.store: Store | None = None
         self.window: webview.Window | None = None
 
@@ -165,7 +164,11 @@ class OtterWebGui:
     async def _init_backend(self) -> None:
         self.store = Store()
         await self.store.open()
-        self.adapter = OpenAICompatAdapter(self.config.base_url, self.config.api_key, self.config.model)
+        # 2026-09-24 起 adapter 经工厂装配(Anthropic 原生 / OpenAI 兼容二选一)
+        from otter.models import build_adapter
+
+        self.adapter = build_adapter(self.config.base_url, self.config.api_key, self.config.model,
+                                     provider=self.config.provider, max_tokens=self.config.max_tokens)
         convs = await self._conv_payload()
         self._js("onBackendReady", {"model": self.config.model, "conversations": convs})
 

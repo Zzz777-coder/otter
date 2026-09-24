@@ -16,7 +16,7 @@ import sys
 from otter import __version__
 from otter.config import Config
 from otter.loop import AgentLoop
-from otter.models.openai_compat import OpenAICompatAdapter
+from otter.models import build_adapter
 from otter.repl import run_repl, run_single
 from otter.store import Store
 from otter.tools.builtin import builtin_registry
@@ -73,11 +73,14 @@ def main() -> int:
             # (真机首跑即被这行污染,非法 JSON 行会打断 jq 逐行消费)
             print(f"[otter] 启动修正:{fixed} 个遗留 Run 已标记 interrupted(otter --resume 可恢复)",
                   file=sys.stderr)
-        adapter = OpenAICompatAdapter(config.base_url, config.api_key, config.model)
+        # 2026-09-24 起 adapter 经工厂装配:Anthropic 原生 / OpenAI 兼容二选一
+        adapter = build_adapter(config.base_url, config.api_key, config.model,
+                                provider=config.provider, max_tokens=config.max_tokens)
         summary_adapter = (
             adapter
             if not config.summary_model
-            else OpenAICompatAdapter(config.base_url, config.api_key, config.summary_model)
+            else build_adapter(config.base_url, config.api_key, config.summary_model,
+                               provider=config.provider, max_tokens=config.max_tokens)
         )
         # M1→M4 装配:摘要/指令/git + 审批/沙箱/Evidence + 记忆/repo_map/deferred + 子代理 + MCP
         activated: set[str] = set()
