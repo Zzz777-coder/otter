@@ -491,38 +491,53 @@ button:hover{opacity:.85}
         tmp.close()
 
         result = {"v": None}
-        gui = self
 
         class DiffApi:
             def verdict(self, v):
+                # 2026-09-24 修复(0.2.0 验收轮真机暴露"点窗无响应"):verdict 只记
+                # 结果,窗口销毁统一由 _diffwin_ask 收尾时对自己创建的窗执行——
+                # 旧版在此 destroy gui._diffwin,重入时它可能已指向新一轮窗口:
+                # 误杀新窗,而用户点的本窗失去关闭者,点击后无任何反应
                 result["v"] = v
-                try:
-                    gui._diffwin.destroy()
-                except Exception:
-                    pass
+
+        # 2026-09-24 修复:重入保护(代际计数)。上一轮弹窗未被处理时(用户未点/
+        # 探针先超时),新调用会销毁旧窗并顶替引用,但旧调用的等待循环仍挂满
+        # 300s 且与新调用结果串线。旧循环发现自己被顶替即刻返回 False,由新窗接管。
+        self._diffwin_gen = getattr(self, "_diffwin_gen", 0) + 1
+        gen = self._diffwin_gen
+
+        def _close(w) -> None:
+            try:
+                w.destroy()
+            except Exception:
+                pass
 
         try:
             if self._diffwin is not None:
-                try:
-                    self._diffwin.destroy()
-                except Exception:
-                    pass
+                _close(self._diffwin)
                 self._diffwin = None
-            self._diffwin = webview.create_window(
+            w = webview.create_window(
                 # 2026-09-24 R7 后续:加了"同目录不再询问"提示行后内容变高,180 窗高
                 # 裁掉按钮——加高到 230 并稍加宽,保证两键完整可见
                 "otter 确认", url=f"file://{tmp.name}", width=320, height=230,
                 js_api=DiffApi())
+            self._diffwin = w
         except Exception:
             return False
 
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
+            if gen != getattr(self, "_diffwin_gen", gen):
+                _close(w)  # 已被更新一轮弹窗顶替:本窗作废,干净退出
+                return False
             if result["v"] == "ok":
+                _close(w)
                 return True
             if result["v"] == "no":
+                _close(w)
                 return False
             time.sleep(0.3)
+        _close(w)
         return False
 
 
@@ -704,8 +719,19 @@ def _probe_coroutine(gui: "OtterWebGui") -> None:
     import time as _t
 
     async def run():
-        await asyncio.sleep(3.0)  # 等窗口+后端就绪
-        w = gui.window
+        # 2026-09-24 修复(0.2.0 验收轮暴露):窗口创建是异步的,冷启动可超过固定
+        # sleep——原版只取一次 gui.window,窗口慢时 w 恒 None,全部 DOM 断言假死
+        # (evaluate_js 抛 NoneType)。改为轮询等窗口(≤30s),再等前端就绪。
+        w = None
+        for _ in range(60):
+            w = gui.window
+            if w is not None:
+                break
+            await asyncio.sleep(0.5)
+        if w is None:
+            print("[probe] 窗口 30s 未就绪,放弃(探针环境异常)", flush=True)
+            return []
+        await asyncio.sleep(1.0)  # 窗口在,再等前端
         rows = []
 
         def probe(name, js):
@@ -745,7 +771,19 @@ def _e2e_coroutine(gui: "OtterWebGui") -> None:
         import time as _t
         from pathlib import Path as _P
 
-        w = gui.window
+        # 2026-09-24 修复(0.2.0 验收轮暴露):窗口创建是异步的,冷启动可超过固定
+        # sleep——原版只取一次 gui.window,窗口慢时 w 恒 None,全部 DOM 断言假死
+        # (evaluate_js 抛 NoneType)。改为轮询等窗口(≤30s),再等前端就绪。
+        w = None
+        for _ in range(60):
+            w = gui.window
+            if w is not None:
+                break
+            await asyncio.sleep(0.5)
+        if w is None:
+            print("[probe] 窗口 30s 未就绪,放弃(探针环境异常)", flush=True)
+            return
+        await asyncio.sleep(2.5)  # 窗口在,再等前端(原时序保留)
         target = _P.cwd() / "gui_e2e.txt"
         verdict = []
 
@@ -798,8 +836,11 @@ def _e2e_coroutine(gui: "OtterWebGui") -> None:
                 if win is None:
                     continue
                 try:
-                    chars = win.evaluate_js("document.getElementById('diff').textContent.length")
-                    if chars and int(chars) > 0:
+                    # 2026-09-24 修复(0.2.0 验收轮):R7 把确认窗改为简洁提问式(无 #diff
+                    # 元素、按钮为 class 非 id)——旧断言永远 FAIL,且探针不点击导致弹窗
+                    # 挂满 300s(用户看到的"测试卡住")。改为判定两颗按钮就绪。
+                    btns = win.evaluate_js("document.querySelectorAll('.btns button').length")
+                    if btns and int(btns) >= 2:
                         return True, clock_ticked
                 except Exception:
                     pass
@@ -808,8 +849,9 @@ def _e2e_coroutine(gui: "OtterWebGui") -> None:
 
         def diffwin_click(ok: bool):
             try:
+                # 2026-09-24 修复:R7 确认窗按钮为 class(.ok/.no),旧版按 id 点击无效
                 gui._diffwin.evaluate_js(
-                    f"document.getElementById('{('ok' if ok else 'no')}').click()")
+                    f"document.querySelector('.{'ok' if ok else 'no'}').click()")
             except Exception as exc:
                 print(f"  diff 窗口点击异常:{exc}", flush=True)
 
@@ -834,7 +876,7 @@ def _e2e_coroutine(gui: "OtterWebGui") -> None:
         # 轮询窗口"没有再弹"(超时无窗)且文件被直接写入
         card1b, _ = await submit_and_wait_diffwin(
             "用 edit_file 工具把 gui_e2e.txt 里的 beta 改成 beta2。禁止用 bash 写文件。",
-            timeout_s=25)
+            timeout_s=45)  # 2026-09-24:25s 短于模型实际耗时,断言时文件尚未写完
         step("同目录第二次写:不再弹确认窗", card1b is None)
         step("同目录第二次写:文件直接写入 beta2",
              target.exists() and "beta2" in target.read_text(encoding="utf-8"))
@@ -884,8 +926,19 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
         import tempfile as _tf
         from pathlib import Path as _P
 
-        w = gui.window
-        await asyncio.sleep(2.5)  # 等窗口与前端就绪(沿用 --gui-e2e 时序)
+        # 2026-09-24 修复(0.2.0 验收轮暴露):窗口创建是异步的,冷启动可超过固定
+        # sleep——原版只取一次 gui.window,窗口慢时 w 恒 None,全部 DOM 断言假死
+        # (evaluate_js 抛 NoneType)。改为轮询等窗口(≤30s),再等前端就绪。
+        w = None
+        for _ in range(60):
+            w = gui.window
+            if w is not None:
+                break
+            await asyncio.sleep(0.5)
+        if w is None:
+            print("[probe] 窗口 30s 未就绪,放弃(探针环境异常)", flush=True)
+            return
+        await asyncio.sleep(2.5)  # 窗口在,再等前端就绪
 
         # 产物样本:噪声图(大 base64)/纯色图/代码/二进制,预览 payload 走真实 _artifact_preview
         tmpdir = _P(_tf.mkdtemp(prefix="otter_artprobe_"))
