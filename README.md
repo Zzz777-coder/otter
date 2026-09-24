@@ -37,6 +37,25 @@ REPL 斜杠命令:`/init` 生成 AGENTS.md · `/undo` 回滚上一组 otter 修�
 每次 Run 的全程 Trace 落库在 `<工作目录>/.otter/otter.db`(runs/messages/events 三表)。
 配置项见 `.env.example`(模型/上下文预算/摘要模型/git 自动提交等)。
 
+## 部署:单人云服务器 + 定时任务
+
+otter 是**单用户本地工具**(状态在工作区 `.otter/` 内,自带隔离),GUI 为桌面壳不支持远程;服务器形态走 CLI:
+
+```bash
+# 服务器上安装并配好 key(单个用户一份 .env)
+pip install otter-agent
+export OTTER_API_KEY=sk-...   # 或写进工作目录 .env
+
+# 交互:tmux 里直接 otter;或单任务
+otter -p "分析这个仓库的测试覆盖" --plan
+
+# 定时无人值守:系统 cron + headless stream-json(NDJSON 落日志)
+15 9 * * * cd ~/myproject && otter -p "跑测试并总结失败原因" \
+    --yes --output-format stream-json >> .otter/cron.log 2>&1
+```
+
+多人 SaaS(每用户自带 key、Web 访问)不在当前架构内——key 为进程级配置、状态绑定工作区;如需请自行包一层 HTTP 服务并做会话隔离。
+
 ## 路线图状态
 
 | 里程碑 | 内容 | 状态 |
