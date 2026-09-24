@@ -34,7 +34,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260924q"  # 2026-09-24 历史页摘要与模式字防重合:max-width 截断省略(index.html ?v= 同步)
+WEB_BUILD = "20260924r"  # 2026-09-24 历史页重合二修:摘要限宽含起点修正+右列 margin-left:auto 钉尾(index.html ?v= 同步)
 
 
 class DiffGateSession:

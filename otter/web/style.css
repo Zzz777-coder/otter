@@ -250,10 +250,11 @@ body {
 .run-ids { font-size: 11px; color: var(--muted); }
 .run-title {
   flex: 1 1 auto; min-width: 0;
-  /* 2026-09-24 用户反馈:长摘要与绝对定位居中的「普通/计划」模式字重合——
-     限宽到行中线下 90px 处截断(模式字宽约 25px,余量充足),
-     溢出部分由既有 ellipsis 省略号接住 */
-  max-width: calc(50% - 90px);
+  /* 2026-09-24 二修(探针实测后):摘要起点在行 content 内 x≈150(左栏118+gap22+padding),
+     此前 calc(50% - 90px) 漏算起点,右缘仍越过行中心与模式字重合 62px。
+     修正为 calc(50% - 250px)= 中心左移 90px 再扣起点,实测右缘距模式字 88px;
+     溢出由既有 ellipsis 省略号接住 */
+  max-width: calc(50% - 250px);
   font-weight: 600; color: var(--text); font-size: 13px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -265,6 +266,10 @@ body {
 /* 右列:时间在上,「会话详情」按钮在其下方 */
 .run-right {
   flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  /* 2026-09-24 二修:摘要被 max-width 卡住后 flex 不再伸展,右列曾被拖到行中间
+     (用户截屏反馈"会话详情挪到中间")——margin-left:auto 强制钉回行尾,
+     右列位置从此不受摘要宽度影响 */
+  margin-left: auto;
 }
 .run-time { color: var(--muted); font-size: 12px; }
 .run-detail-btn {
