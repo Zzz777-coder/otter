@@ -192,16 +192,17 @@ body {
 .seg-btn[data-mode="plan"].active { background: #b8489b; color: #fff; }
 
 /* ── 运行历史 / 设置页 ── */
-#page-runs, #page-settings, #page-memory { grid-column: 2; grid-row: 1; padding: 18px 22px; width: 100%; }
+#page-runs, #page-settings, #page-memory, #page-artifacts { grid-column: 2; grid-row: 1; padding: 18px 22px; width: 100%; }
 /* 2026-09-24 用户要求:运行历史改整屏行分布的历史记录块,取消左右分栏 */
 #page-runs { flex-direction: column; min-height: 0; }
 
 /* ── 长期记忆页(2026-09-24 新增):整屏行分布,观感与历史页同族 ── */
 /* 显示切换走全局 .page/.page.active(64-65 行);此处只定列布局 */
-#page-memory { flex-direction: column; min-height: 0; }
-#memSearch { flex: none; margin: 8px 0 4px; padding: 7px 12px; border: 1px solid var(--border);
+#page-memory, #page-artifacts { flex-direction: column; min-height: 0; }
+#memSearch, #artSearch { flex: none; margin: 8px 0 4px; padding: 7px 12px; border: 1px solid var(--border);
   border-radius: 8px; background: var(--bg-input); font-size: 12px; color: var(--text); outline: none; }
-#memSearch:focus { border-color: var(--accent); }
+#memSearch:focus, #artSearch:focus { border-color: var(--accent); }
+#artList { flex: 1; overflow-y: auto; min-height: 0; }
 #memoryScroll { flex: 1; overflow-y: auto; min-height: 0; }
 .mem-sec { color: var(--muted); font-weight: 700; font-size: 12px; margin: 14px 0 4px; }
 .mem-item { display: flex; flex-direction: column; gap: 3px; padding: 10px 4px;

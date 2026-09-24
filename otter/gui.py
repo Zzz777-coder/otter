@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260924l"  # 2026-09-24 长期记忆页(查看+搜索;index.html ?v= 同步)
+WEB_BUILD = "20260924m"  # 2026-09-24 交付物页(列表+预览+打开;index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -343,6 +343,10 @@ class OtterWebGui:
                 """2026-09-24 长期记忆页:纯读快照(双层记忆 Core/Ordinary 的 GUI 入口)"""
                 return _memory_payload()
 
+            def get_artifacts(self):
+                """2026-09-24 交付物页:index.jsonl 纯读倒序(最新在前)"""
+                return _artifacts_payload()
+
             def get_run_detail(self, run_id: int):
                 return _run_detail(gui, run_id)
 
@@ -561,6 +565,22 @@ def _memory_payload(root: Path | None = None) -> dict:
                 "mtime": time.strftime("%m月%d日 %H:%M", time.localtime(p.stat().st_mtime)),
             })
     return {"root": str(root), "core": core, "entries": entries}
+
+
+def _artifacts_payload(limit: int = 50) -> list[dict]:
+    """交付物页数据快照(2026-09-24 新增 GUI 页)。纯读 index.jsonl 倒序(最新在前);
+    刻意**不**经 artifact.list_artifacts——其 _artifacts_root() 带 mkdir 写副作用,
+    查看页不应触发写。坏行跳过(与 list_artifacts 同容错)。"""
+    p = Path.cwd() / ".otter" / "artifacts" / "index.jsonl"
+    if not p.is_file():
+        return []
+    out: list[dict] = []
+    for line in reversed(p.read_text(encoding="utf-8").strip().splitlines()):
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return out[:limit]
 
 
 def _runs_rows(gui: "OtterWebGui") -> list[dict]:

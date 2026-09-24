@@ -80,7 +80,7 @@ const appSrc = fs.readFileSync(path.join(WEB, "app.js"), "utf-8");
 (0, eval)(markedSrc);
 // app.js 首行 "use strict":严格模式下 eval 的 function 声明不外泄——
 // 尾部追加显式导出(同作用域内赋值给 global)
-(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory };");
+(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts };");
 if (!global.__exports || typeof global.__exports.renderMarkdown !== "function") {
   console.error("renderMarkdown 导出失败");
   process.exit(1);
@@ -333,6 +333,37 @@ check("R5 再点收起", cardsInThread() === r5Base);
   check("记忆页搜索命中 mid 字段", coreListEl.children[0]._cl.has("conv-empty")
     && memListEl.children.length === 1
     && memListEl.children[0].children[0].children[0].textContent === "M009");
+
+  // 11) 交付物页(2026-09-24 新增):renderArtifacts 列表/空态/搜索/点击内联展开预览卡
+  const artListEl = new El("div"), artSearchEl = new El("input");
+  document.querySelector = (s) => (s === "#artList" ? artListEl
+    : s === "#memSearch" ? memSearchEl : s === "#artSearch" ? artSearchEl : _qm(s));
+  // 桩:preview_file 按需补拉 + open_artifact(卡片三通道按钮)
+  global.window.pywebview.api.preview_file = async () => ({ preview_type: "text", content: "预览正文", size: 9 });
+  global.window.pywebview.api.open_artifact = async () => "[otter] 已打开";
+  const { renderArtifacts } = global.__exports;
+  const sampleArts = [
+    { id: "20260924-2", name: "report.pdf", path: "/tmp/report.pdf", size: 1024, note: "周报", run_id: 7, sha256: "abc123", created: "2026-09-24 10:00" },
+    { id: "20260924-1", name: "data.csv", path: "/tmp/data.csv", size: 2048, note: "", run_id: 6, sha256: "def456", created: "2026-09-24 09:00" },
+  ];
+  renderArtifacts(sampleArts, "");
+  check("交付物页渲染 2 条(最新在前)", artListEl.children.length === 2
+    && artListEl.children[0].children[0].textContent === "report.pdf");
+  check("交付物副行=note", artListEl.children[0].children[1].textContent === "周报");
+  check("交付物元数据含大小/时间/run/sha", artListEl.children[0].children[2].textContent.includes("1.0KB")
+    && artListEl.children[0].children[2].textContent.includes("Run #7")
+    && artListEl.children[0].children[2].textContent.includes("sha abc123"));
+  const artItem = artListEl.children[0];
+  await artItem.onclick();  // 点击行 → 按需补拉预览 → 内联展开产物卡
+  check("点击交付物行内联展开预览卡", artItem.__card !== null && artItem.__card._cl.has("artifact-preview-card"));
+  await artItem.onclick();
+  check("再点收起预览卡", artItem.__card === null);
+  renderArtifacts(sampleArts, "data");
+  check("交付物搜索过滤命中 1 条", artListEl.children.length === 1
+    && artListEl.children[0].children[0].textContent === "data.csv");
+  renderArtifacts([], "");
+  check("交付物空数据显示空态", artListEl.children.length === 1
+    && artListEl.children[0]._cl.has("conv-empty"));
 
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);
   process.exit(failures === 0 ? 0 : 1);

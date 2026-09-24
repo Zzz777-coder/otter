@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
   <title>otter</title>
   <!-- 2026-09-22:版本查询串绕 WKWebView 静态缓存;marked(MIT)标准 markdown 渲染 -->
-  <link rel="stylesheet" href="style.css?v=20260924l" /><!-- 20260924l:长期记忆页(查看+搜索) -->
+  <link rel="stylesheet" href="style.css?v=20260924m" /><!-- 20260924m:交付物页(列表+预览+打开) -->
 </head>
 <body>
   <!-- 左侧图标栏 -->
@@ -24,6 +24,10 @@
     <!-- 2026-09-24 长期记忆页:双层记忆(Core/Ordinary)的 GUI 入口,第一版查看+搜索(只读) -->
     <button class="rail-item" data-page="memory" title="长期记忆">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>
+    </button>
+    <!-- 2026-09-24 交付物页:artifact_publish 发布历史列表,点击内联预览+三通道打开 -->
+    <button class="rail-item" data-page="artifacts" title="交付物">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
     </button>
     <button class="rail-item" data-page="settings" title="设置">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
@@ -89,6 +93,18 @@
     </div>
   </div>
 
+  <!-- 交付物页(2026-09-24 新增):artifact_publish 发布历史,最新在前;
+       点击条目内联展开预览卡(复用产物卡:图片/PDF/代码/文本/二进制+三通道打开)。
+       数据由 gui.py _artifacts_payload 纯读 index.jsonl 生成 -->
+  <div class="page" id="page-artifacts">
+    <div class="runs-head">
+      <div class="panel-title">交付物</div>
+      <button id="reloadArtifacts" title="刷新">↻</button>
+    </div>
+    <input id="artSearch" type="text" placeholder="搜索" autocomplete="off" />
+    <div id="artList"></div>
+  </div>
+
   <!-- 设置页 -->
   <div class="page" id="page-settings">
     <pre id="settingsBox" class="panel"></pre>
@@ -96,6 +112,6 @@
 
   <footer id="statusbar">启动中…</footer>
   <script src="marked.min.js?v=1"></script>
-  <script src="app.js?v=20260924l"></script><!-- 20260924l:长期记忆页(查看+搜索) -->
+  <script src="app.js?v=20260924m"></script><!-- 20260924m:交付物页(列表+预览+打开) -->
 </body>
 </html>

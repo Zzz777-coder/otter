@@ -545,6 +545,7 @@ document.querySelectorAll(".rail-item").forEach((btn) => {
     $(`#page-${btn.dataset.page}`).classList.add("active");
     if (btn.dataset.page === "runs") loadRuns();
     if (btn.dataset.page === "memory") loadMemory();  // 2026-09-24 长期记忆页:切页即拉快照
+    if (btn.dataset.page === "artifacts") loadArtifacts();  // 2026-09-24 交付物页:切页即拉索引
     if (btn.dataset.page === "settings") loadSettings();
   });
 });
@@ -760,6 +761,54 @@ async function loadMemory() {
 $("#memSearch").addEventListener("input", () =>
   renderMemory(lastMemory || { core: [], entries: [] }, $("#memSearch").value));
 $("#reloadMemory").addEventListener("click", loadMemory);
+
+// ── 交付物页(2026-09-24 新增):artifact_publish 发布历史,最新在前 ──
+// 预览/打开全复用产物卡链路(buildArtifactCard 内含三通道按钮,preview_file 按需补拉)
+let lastArtifacts = null;
+function renderArtifacts(arts, q = "") {
+  const ql = (q || "").toLowerCase();
+  const list = $("#artList");
+  list.innerHTML = "";
+  let shown = 0;
+  for (const a of arts || []) {
+    if (ql && ![a.name, a.note, a.id].some((f) => (f || "").toLowerCase().includes(ql))) continue;
+    shown++;
+    const item = document.createElement("div");
+    item.className = "mem-item";  // 复用记忆页条目排版(同族观感)
+    const title = document.createElement("div");
+    title.className = "mem-title";
+    title.textContent = a.name || a.id;
+    const sub = document.createElement("div");
+    sub.className = "mem-sub";
+    sub.textContent = a.note || "";
+    const meta = document.createElement("div");
+    meta.className = "mem-meta";
+    meta.textContent = `${fmtSize(a.size)} · ${a.created || ""}`
+      + (a.run_id ? ` · Run #${a.run_id}` : "")
+      + (a.sha256 ? ` · sha ${a.sha256}` : "");
+    item.append(title, sub, meta);
+    item.onclick = async () => {
+      if (item.__card) { item.__card.remove(); item.__card = null; return; }
+      // 与 R5 链接行同法:payload 无预览字段,点击时按需补拉(失败走 binary 卡兜底)
+      const p = { name: a.name, path: a.path, size: a.size, note: a.note };
+      if (window.pywebview) {
+        try { Object.assign(p, await window.pywebview.api.preview_file(a.path)); } catch (e) { /* binary 卡 */ }
+      }
+      const card = buildArtifactCard(p);
+      card.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); };  // 卡内按钮不触发行的收起
+      item.__card = card;
+      item.appendChild(card);
+    };
+    list.appendChild(item);
+  }
+  if (!shown) _memEmpty(list, "暂无交付物");
+}
+async function loadArtifacts() {
+  lastArtifacts = await window.pywebview.api.get_artifacts();
+  renderArtifacts(lastArtifacts, $("#artSearch").value || "");
+}
+$("#artSearch").addEventListener("input", () => renderArtifacts(lastArtifacts || [], $("#artSearch").value));
+$("#reloadArtifacts").addEventListener("click", loadArtifacts);
 
 async function loadSettings() {
   $("#settingsBox").textContent = await window.pywebview.api.get_settings();
