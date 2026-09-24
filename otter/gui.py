@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sqlite3
 import sys
 import threading
@@ -34,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260924k"  # 2026-09-24 去溯源注释(公开库清理;index.html ?v= 同步)
+WEB_BUILD = "20260924l"  # 2026-09-24 长期记忆页(查看+搜索;index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -338,6 +339,10 @@ class OtterWebGui:
             def get_runs(self):
                 return _runs_rows(gui)
 
+            def get_memory(self):
+                """2026-09-24 长期记忆页:纯读快照(双层记忆 Core/Ordinary 的 GUI 入口)"""
+                return _memory_payload()
+
             def get_run_detail(self, run_id: int):
                 return _run_detail(gui, run_id)
 
@@ -521,6 +526,41 @@ def _db_ro(path: Path) -> sqlite3.Connection | None:
         return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=0.3)
     except sqlite3.Error:
         return None
+
+
+def _memory_payload(root: Path | None = None) -> dict:
+    """长期记忆页数据快照(2026-09-24 新增 GUI 页,第一版只读+搜索)。
+    纯读:Core 经 CoreMemory.load;Ordinary 直接 glob+解析 front matter,
+    刻意**不**实例化 FileMemoryStore——其构造带 mkdir/建 FTS 索引的写副作用,
+    查看页不应触发任何写。archived 条目只在 archive/ 子目录,天然不进本快照。"""
+    from otter.memory import CoreMemory
+
+    root = root or (Path.cwd() / ".otter" / "memory")
+    core: list[dict] = []
+    if (root / "CORE.md").is_file():
+        core = CoreMemory(root).load()
+    entries: list[dict] = []
+    active_dir = root / "active"
+    if active_dir.is_dir():
+        for p in sorted(active_dir.glob("M*.md")):
+            try:
+                text = p.read_text(encoding="utf-8")
+            except OSError:
+                continue  # 单文件损坏不阻断整页
+            m = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.DOTALL)
+            if not m:
+                continue
+            meta = dict(re.findall(r"^(\w+):\s*(.*)$", m.group(1), re.M))
+            if meta.get("status", "active") != "active":
+                continue  # 与 FileMemoryStore.list_active 同口径:非 active 不展示
+            entries.append({
+                "mid": meta.get("id", p.stem), "title": meta.get("title", ""),
+                "summary": meta.get("summary", ""), "content": m.group(2).strip(),
+                "revision": int(meta.get("revision", 1) or 1),
+                "access_count": int(meta.get("access_count", 0) or 0),
+                "mtime": time.strftime("%m月%d日 %H:%M", time.localtime(p.stat().st_mtime)),
+            })
+    return {"root": str(root), "core": core, "entries": entries}
 
 
 def _runs_rows(gui: "OtterWebGui") -> list[dict]:

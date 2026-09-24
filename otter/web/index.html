@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
   <title>otter</title>
   <!-- 2026-09-22:版本查询串绕 WKWebView 静态缓存;marked(MIT)标准 markdown 渲染 -->
-  <link rel="stylesheet" href="style.css?v=20260924k" /><!-- 2026-09-24k:去溯源注释(公开库清理) -->
+  <link rel="stylesheet" href="style.css?v=20260924l" /><!-- 20260924l:长期记忆页(查看+搜索) -->
 </head>
 <body>
   <!-- 左侧图标栏 -->
@@ -20,6 +20,10 @@
     </button>
     <button class="rail-item" data-page="runs" title="运行历史">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+    </button>
+    <!-- 2026-09-24 长期记忆页:双层记忆(Core/Ordinary)的 GUI 入口,第一版查看+搜索(只读) -->
+    <button class="rail-item" data-page="memory" title="长期记忆">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>
     </button>
     <button class="rail-item" data-page="settings" title="设置">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
@@ -69,6 +73,22 @@
     <div id="runsList"></div>
   </div>
 
+  <!-- 长期记忆页(2026-09-24 新增):Core(常驻注入)/Ordinary(active)两区块,
+       只读+前端搜索;点击条目展开详情(出处原话/正文)。数据由 gui.py _memory_payload 纯读生成 -->
+  <div class="page" id="page-memory">
+    <div class="runs-head">
+      <div class="panel-title">长期记忆</div>
+      <button id="reloadMemory" title="刷新">↻</button>
+    </div>
+    <input id="memSearch" type="text" placeholder="搜索" autocomplete="off" />
+    <div id="memoryScroll">
+      <div class="mem-sec">Core 记忆 · 常驻注入</div>
+      <div id="coreList"></div>
+      <div class="mem-sec">普通记忆 · active</div>
+      <div id="memList"></div>
+    </div>
+  </div>
+
   <!-- 设置页 -->
   <div class="page" id="page-settings">
     <pre id="settingsBox" class="panel"></pre>
@@ -76,6 +96,6 @@
 
   <footer id="statusbar">启动中…</footer>
   <script src="marked.min.js?v=1"></script>
-  <script src="app.js?v=20260924k"></script><!-- 2026-09-24k:去溯源注释(公开库清理) -->
+  <script src="app.js?v=20260924l"></script><!-- 20260924l:长期记忆页(查看+搜索) -->
 </body>
 </html>

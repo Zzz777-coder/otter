@@ -61,6 +61,8 @@ class El {
   closest() { return null; }
 }
 global.document = { createElement: (t) => new El(t) };
+// 2026-09-24 记忆页用例配套:renderMemory 用 createTextNode 拼 M###+标题,桩补齐
+global.document.createTextNode = (t) => { const e = new El("#text"); e.textContent = t; return e; };
 // 补齐 app.js 顶层所需桩(必须在 eval 之前就位——顺序错误即桩失效)
 global.document.querySelector = () => new El("div");
 global.document.querySelectorAll = () => [];
@@ -78,7 +80,7 @@ const appSrc = fs.readFileSync(path.join(WEB, "app.js"), "utf-8");
 (0, eval)(markedSrc);
 // app.js 首行 "use strict":严格模式下 eval 的 function 声明不外泄——
 // 尾部追加显式导出(同作用域内赋值给 global)
-(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns };");
+(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory };");
 if (!global.__exports || typeof global.__exports.renderMarkdown !== "function") {
   console.error("renderMarkdown 导出失败");
   process.exit(1);
@@ -300,6 +302,37 @@ check("R5 再点收起", cardsInThread() === r5Base);
   await b1.onclick();
   check("R8 点击整行跳转会话(switch_conversation)", global.__switchedCid === 9);
   check("R8 会话行不展开 Trace(跳转取代)", b1.querySelector(".run-detail") === null);
+
+  // 10) 长期记忆页(2026-09-24 新增):renderMemory 两区块渲染+搜索过滤+空态
+  const coreListEl = new El("div"), memListEl = new El("div"), memSearchEl = new El("input");
+  const _qm = document.querySelector;
+  document.querySelector = (s) => (s === "#coreList" ? coreListEl
+    : s === "#memList" ? memListEl : s === "#memSearch" ? memSearchEl : _qm(s));
+  const { renderMemory } = global.__exports;
+  renderMemory({
+    core: [{ key: "偏好", value: "结论先行", reason: "用户要求", source_quote: "给我结论先行", updated_at: "2026-09-24" }],
+    entries: [{ mid: "M001", title: "排版偏好", summary: "要简洁", content: "正文内容", revision: 2, access_count: 3, mtime: "09月24日 10:00" }],
+  }, "");
+  check("记忆页 Core 条目主行 key:value", coreListEl.children.length === 1
+    && coreListEl.children[0].children[0].textContent === "偏好:结论先行");
+  check("记忆页 Core 副行=依据+日期", coreListEl.children[0].children[1].textContent.includes("用户要求")
+    && coreListEl.children[0].children[1].textContent.includes("2026-09-24"));
+  check("记忆页普通记忆 M###+标题", memListEl.children.length === 1
+    && memListEl.children[0].children[0].children[0].textContent === "M001"
+    && memListEl.children[0].children[0].children[1].textContent === "排版偏好");
+  check("记忆页摘要/元数据/正文在结构内", memListEl.children[0].children[1].textContent === "要简洁"
+    && memListEl.children[0].children[2].textContent.includes("rev 2")
+    && memListEl.children[0].children[3].textContent === "正文内容");
+  renderMemory({ core: [], entries: [] }, "");
+  check("记忆页空数据显示空态", coreListEl.children.length === 1
+    && coreListEl.children[0]._cl.has("conv-empty") && memListEl.children[0]._cl.has("conv-empty"));
+  renderMemory({ core: [{ key: "偏好", value: "x", reason: "", source_quote: "", updated_at: "" }], entries: [] }, "不存在词");
+  check("记忆页搜索无命中→空态", coreListEl.children[0]._cl.has("conv-empty"));
+  renderMemory({ core: [{ key: "偏好", value: "x", reason: "", source_quote: "", updated_at: "" }],
+                 entries: [{ mid: "M009", title: "别的", summary: "", content: "", revision: 1, access_count: 0, mtime: "" }] }, "M009");
+  check("记忆页搜索命中 mid 字段", coreListEl.children[0]._cl.has("conv-empty")
+    && memListEl.children.length === 1
+    && memListEl.children[0].children[0].children[0].textContent === "M009");
 
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);
   process.exit(failures === 0 ? 0 : 1);

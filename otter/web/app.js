@@ -544,6 +544,7 @@ document.querySelectorAll(".rail-item").forEach((btn) => {
     document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
     $(`#page-${btn.dataset.page}`).classList.add("active");
     if (btn.dataset.page === "runs") loadRuns();
+    if (btn.dataset.page === "memory") loadMemory();  // 2026-09-24 长期记忆页:切页即拉快照
     if (btn.dataset.page === "settings") loadSettings();
   });
 });
@@ -684,6 +685,81 @@ async function loadRuns() {
   }
 }
 $("#reloadRuns").addEventListener("click", loadRuns);
+
+// ── 长期记忆页(2026-09-24 新增):查看+搜索,只读;编辑能力留待后续轮次 ──
+// 数据快照经 gui.py _memory_payload 纯读生成(Core=JSON 条目,Ordinary=front matter 解析);
+// 搜索为纯前端过滤(从缓存重渲染,不跨桥),与历史页 convSearch 同一模式
+let lastMemory = null;
+function _memEmpty(list, text) {
+  const empty = document.createElement("div");
+  empty.className = "conv-empty";
+  empty.textContent = text;
+  list.appendChild(empty);
+}
+function renderMemory(mem, q = "") {
+  const ql = (q || "").toLowerCase();
+  const match = (...fields) =>
+    !ql || fields.some((f) => (f || "").toLowerCase().includes(ql));
+  // Core 区:key: value 主行 + 依据/日期副行,点击展开出处原话
+  const coreList = $("#coreList");
+  coreList.innerHTML = "";
+  let shownCore = 0;
+  for (const c of mem.core || []) {
+    if (!match(c.key, c.value, c.reason)) continue;
+    shownCore++;
+    const item = document.createElement("div");
+    item.className = "mem-item";
+    const title = document.createElement("div");
+    title.className = "mem-title";
+    title.textContent = `${c.key}:${c.value}`;
+    const meta = document.createElement("div");
+    meta.className = "mem-meta";
+    meta.textContent = `依据:${c.reason || "—"} · ${c.updated_at || ""}`;
+    const body = document.createElement("div");
+    body.className = "mem-body";
+    body.textContent = c.source_quote || "(无出处原话)";
+    item.append(title, meta, body);
+    item.onclick = () => item.classList.toggle("open");
+    coreList.appendChild(item);
+  }
+  if (!shownCore) _memEmpty(coreList, "无 Core 记忆");
+  // 普通记忆区:M### 标题 + 摘要 + rev/访问/时间副行,点击展开正文
+  const list = $("#memList");
+  list.innerHTML = "";
+  let shown = 0;
+  for (const e of mem.entries || []) {
+    if (!match(e.mid, e.title, e.summary, e.content)) continue;
+    shown++;
+    const item = document.createElement("div");
+    item.className = "mem-item";
+    const title = document.createElement("div");
+    title.className = "mem-title";
+    const id = document.createElement("span");
+    id.className = "mem-id";
+    id.textContent = e.mid;
+    title.append(id, document.createTextNode(e.title || ""));
+    const sub = document.createElement("div");
+    sub.className = "mem-sub";
+    sub.textContent = e.summary || "";
+    const meta = document.createElement("div");
+    meta.className = "mem-meta";
+    meta.textContent = `rev ${e.revision} · 访问 ${e.access_count} · ${e.mtime || ""}`;
+    const body = document.createElement("div");
+    body.className = "mem-body";
+    body.textContent = e.content || "";
+    item.append(title, sub, meta, body);
+    item.onclick = () => item.classList.toggle("open");
+    list.appendChild(item);
+  }
+  if (!shown) _memEmpty(list, "无普通记忆");
+}
+async function loadMemory() {
+  lastMemory = await window.pywebview.api.get_memory();
+  renderMemory(lastMemory, $("#memSearch").value || "");
+}
+$("#memSearch").addEventListener("input", () =>
+  renderMemory(lastMemory || { core: [], entries: [] }, $("#memSearch").value));
+$("#reloadMemory").addEventListener("click", loadMemory);
 
 async function loadSettings() {
   $("#settingsBox").textContent = await window.pywebview.api.get_settings();
