@@ -138,6 +138,7 @@ window.otterUI = {
       try { showArtifactCard(p); } catch (e) {
         (window.__errLog = window.__errLog || []).push("showArtifactCard error: " + String(e));
       }
+      railDot("artifacts", true);  // 2026-09-24 rail 徽标:有新交付物,artifacts 键亮点
     }
     // 2026-09-24 R5(用户要求):写类工具成功 → 📎 链接行(图标+文件名超链接,点击 chat 内预览)
     else if (type === "FILE_CHANGED") {
@@ -172,18 +173,21 @@ window.otterUI = {
     rawBuf = "";
     meta("ok", `✔ ${payload.summary}`);
     setBusy(false);
+    railDot("runs", true);  // 2026-09-24 rail 徽标:run 落地,runs 键亮点(切页即清)
   },
   onError(text) {
     hideThinking();
     finalizeAssistant();
     meta("err", `❌ 出错:${text}`);
     setBusy(false);
+    railDot("runs", true);  // 2026-09-24 rail 徽标:失败也是新历史
   },
   onStopped() {
     hideThinking();
     finalizeAssistant();
     meta("system", "⏹ 已停止");
     setBusy(false);
+    railDot("runs", true);  // 2026-09-24 rail 徽标:中断也是新历史
   },
   onConversations(convs) { renderConvs(convs); },
   onDiffPreview(payload) { return showDiffCard(payload); },  // M3.5:返回 Promise,Python 侧等待采纳/拒绝
@@ -493,6 +497,23 @@ function setBusy(b) {
     $("#statusbar").textContent = "就绪";
     input.focus();
   }
+  railDot("chat", b);  // 2026-09-24 rail 徽标:运行中 chat 键亮点(切到别页也可见)
+}
+
+// ── rail 徽标(2026-09-24 新增):各 rail 键的小圆点提醒,纯前端 ──
+// 点亮:任务运行中→chat;run 结束→runs(有新历史);ARTIFACT 事件→artifacts(有新交付物)。
+// 熄灭:切到对应页(拉数据)即清除。实现为按键内增删 .nav-dot span(见 css)。
+function railDot(page, on) {
+  const btn = document.querySelector(`.rail-item[data-page="${page}"]`);
+  if (!btn) return;
+  let dot = btn.querySelector(".nav-dot");
+  if (on && !dot) {
+    dot = document.createElement("span");
+    dot.className = "nav-dot";
+    btn.appendChild(dot);
+  } else if (!on && dot) {
+    dot.remove();
+  }
 }
 
 // ── 交互 ─────────────────────────────────────────────────────────
@@ -595,6 +616,7 @@ $("#newConv").addEventListener("click", async () => {
 // 运行历史(2026-09-24 用户要求:整屏行分布的历史记录块,不再左右分栏;
 // 块内=完成标志/会话id/内容摘要/模式/最后会话时间,中断如实标注——字段由 gui.py _runs_rows 生成)
 async function loadRuns() {
+  railDot("runs", false);  // 2026-09-24 rail 徽标:进页查看即熄灭
   const runs = await window.pywebview.api.get_runs();
   const list = $("#runsList");
   list.innerHTML = "";
@@ -804,6 +826,7 @@ function renderArtifacts(arts, q = "") {
   if (!shown) _memEmpty(list, "暂无交付物");
 }
 async function loadArtifacts() {
+  railDot("artifacts", false);  // 2026-09-24 rail 徽标:进页查看即熄灭
   lastArtifacts = await window.pywebview.api.get_artifacts();
   renderArtifacts(lastArtifacts, $("#artSearch").value || "");
 }

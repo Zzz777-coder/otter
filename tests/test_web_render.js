@@ -80,7 +80,7 @@ const appSrc = fs.readFileSync(path.join(WEB, "app.js"), "utf-8");
 (0, eval)(markedSrc);
 // app.js 首行 "use strict":严格模式下 eval 的 function 声明不外泄——
 // 尾部追加显式导出(同作用域内赋值给 global)
-(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts };");
+(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts, railDot };");
 if (!global.__exports || typeof global.__exports.renderMarkdown !== "function") {
   console.error("renderMarkdown 导出失败");
   process.exit(1);
@@ -364,6 +364,37 @@ check("R5 再点收起", cardsInThread() === r5Base);
   renderArtifacts([], "");
   check("交付物空数据显示空态", artListEl.children.length === 1
     && artListEl.children[0]._cl.has("conv-empty"));
+
+  // 12) rail 徽标(2026-09-24 新增):railDot 点亮/熄灭/幂等;onDone→runs 亮;loadRuns→熄
+  const chatBtn = new El("button"), runsBtnEl = new El("button"), artsBtn = new El("button");
+  document.querySelector = (s) => {
+    if (s.includes('data-page="chat"')) return chatBtn;
+    if (s.includes('data-page="runs"')) return runsBtnEl;
+    if (s.includes('data-page="artifacts"')) return artsBtn;
+    return (s === "#artList") ? artListEl : (s === "#memSearch") ? memSearchEl
+      : (s === "#artSearch") ? artSearchEl : _qm(s);
+  };
+  const { railDot } = global.__exports;
+  railDot("chat", true);
+  check("railDot 点亮:chat 键出现 nav-dot", chatBtn.children[0] !== undefined
+    && chatBtn.children[0]._cl.has("nav-dot"));
+  railDot("chat", true);
+  check("railDot 幂等:重复点亮不重复加", chatBtn.querySelectorAll(".nav-dot").length === 1);
+  railDot("chat", false);
+  check("railDot 熄灭:移除 nav-dot", chatBtn.querySelectorAll(".nav-dot").length === 0);
+  railDot("runs", false);  // 无 dot 时熄灭不炸
+  check("railDot 无 dot 时熄灭安全", runsBtnEl.children.length === 0);
+  // 联动:onDone → runs 键亮;loadRuns → 熄
+  otterUI2.onDone({ summary: "完成", final_text: "答案" });
+  check("onDone 后 runs 键点亮", runsBtnEl.children[0] !== undefined
+    && runsBtnEl.children[0]._cl.has("nav-dot"));
+  await global.__exports.loadRuns();
+  check("loadRuns 后 runs 键熄灭", runsBtnEl.children.length === 0);
+  // 联动:ARTIFACT 事件 → artifacts 键亮
+  otterUI2.onEvent({ type: "ARTIFACT", path: "demo/x.txt", name: "x.txt", note: "",
+                     preview_type: "text", content: "hi", size: 2 });
+  check("ARTIFACT 事件后 artifacts 键点亮", artsBtn.children[0] !== undefined
+    && artsBtn.children[0]._cl.has("nav-dot"));
 
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);
   process.exit(failures === 0 ? 0 : 1);

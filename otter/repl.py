@@ -68,18 +68,67 @@ def _render_event(type_: str, payload: dict) -> None:
         )
 
 
+class StreamJsonEmitter:
+    """headless stream-json 输出器(2026-09-24 新增):loop 事件 → NDJSON 逐行 flush stdout。
+
+    供 CI/脚本消费(otter -p "..." --output-format stream-json --yes):
+    每行一个 JSON 对象;事件名小写直通 loop 事件流(model_started/tool_started/…),
+    文本增量单独 text_delta 行;终态 final 行字段与 -p json 模式一致,退出码即成败。
+    终端 rich 渲染在此模式下整体抑制——stdout 必须是纯 NDJSON(混入即坏流)。"""
+
+    def __init__(self, file=None) -> None:
+        import json as _json
+        import sys as _sys
+
+        self._json = _json
+        self._file = file or _sys.stdout
+
+    def _emit(self, obj: dict) -> None:
+        print(self._json.dumps(obj, ensure_ascii=False), file=self._file, flush=True)
+
+    def init(self, **meta) -> None:
+        self._emit({"type": "init", **meta})
+
+    def event(self, type_: str, payload: dict) -> None:
+        self._emit({"type": type_.lower(), **payload})
+
+    def delta(self, s: str) -> None:
+        if s:
+            self._emit({"type": "text_delta", "text": s})
+
+    def final(self, result) -> None:
+        self._emit({
+            "type": "final",
+            "ok": bool(result and result.ok),
+            "stop_reason": result.stop_reason if result else "interrupted",
+            "final_text": result.final_text if result else "",
+            "steps": result.steps if result else 0,
+            "tool_calls": result.tool_calls if result else 0,
+            "usage": {"input": result.usage.input_tokens, "output": result.usage.output_tokens}
+            if result else None,
+        })
+
+    def error(self, message: str) -> None:
+        self._emit({"type": "error", "message": message})
+
+
 async def _dispatch(loop: AgentLoop, store, history: list[Message], state: SummaryState,
-                    prompt: str, max_steps: int, mode: str, plan_context: str = "") -> AgentResult | None:
-    """一次用户任务的公共执行路径(单发/REPL 共用)。"""
+                    prompt: str, max_steps: int, mode: str, plan_context: str = "",
+                    emitter: StreamJsonEmitter | None = None) -> AgentResult | None:
+    """一次用户任务的公共执行路径(单发/REPL 共用)。
+    emitter 非 None 时走 headless stream-json:抑制终端渲染,事件/增量转 NDJSON。"""
     run_id = await store.new_run()
 
     async def on_event(type_: str, payload: dict) -> None:
-        _render_event(type_, payload)
+        if emitter is None:
+            _render_event(type_, payload)
+        else:
+            emitter.event(type_, payload)
 
     try:
         result = await loop.run(
             history, Message(role="user", content=prompt), run_id, max_steps,
-            on_text_delta=lambda s: print(s, end="", flush=True),
+            on_text_delta=(lambda s: print(s, end="", flush=True)) if emitter is None else emitter.delta,
             mode=mode, summary_state=state,
             on_event=on_event,  # 修正(2026-09-22):接入渲染回调(M0 起漏接)
             plan_context=plan_context,  # Plan Mode v2:采纳计划注入
@@ -92,16 +141,23 @@ async def _dispatch(loop: AgentLoop, store, history: list[Message], state: Summa
 
                 note = await maybe_distill(loop.adapter, run_id, prompt, result.final_text)
                 if note:
-                    console.print(f"[magenta]{note}[/]")
+                    if emitter is None:
+                        console.print(f"[magenta]{note}[/]")
+                    else:
+                        emitter.event("SKILL_DISTILLED", {"note": note})
             except Exception:
                 pass
         return result
     except KeyboardInterrupt:
-        console.print("\n[bold red]已中断(M2 起有 Checkpoint 恢复,见说明书路线图)[/]")
+        if emitter is None:
+            console.print("\n[bold red]已中断(M2 起有 Checkpoint 恢复,见说明书路线图)[/]")
+        else:
+            emitter.error("interrupted")
         await store.finish_run(run_id, "failed", "interrupted")
         return None
     finally:
-        print()
+        if emitter is None:
+            print()
 
 
 async def run_single(loop: AgentLoop, store, prompt: str, max_steps: int, mode: str = MODE_NORMAL,
@@ -124,6 +180,19 @@ async def run_single(loop: AgentLoop, store, prompt: str, max_steps: int, mode: 
         }, ensure_ascii=False))
     else:
         console.print(f"[bold]── 结果[/] {result.summary() if result else '未完成'}")
+    return 0 if (result and result.ok) else 1
+
+
+async def run_single_stream(loop: AgentLoop, store, prompt: str, max_steps: int,
+                            mode: str = MODE_NORMAL) -> int:
+    """headless stream-json(2026-09-24):NDJSON 流式输出到 stdout,退出码即成败。
+    与 -p json 的区别:运行中逐事件输出(init/事件名小写/text_delta/final),
+    供 `otter -p ... --output-format stream-json --yes | jq ...` 或 tail -f 消费。"""
+    emitter = StreamJsonEmitter()
+    emitter.init(model=getattr(loop.adapter, "model", "") or "", mode=mode, max_steps=max_steps)
+    result = await _dispatch(loop, store, [], SummaryState(), prompt, max_steps, mode,
+                             emitter=emitter)
+    emitter.final(result)
     return 0 if (result and result.ok) else 1
 
 

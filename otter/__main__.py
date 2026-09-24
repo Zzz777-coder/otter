@@ -34,8 +34,8 @@ def main() -> int:
     parser.add_argument("--max-steps", type=int, default=None, help="单次任务最大步数(默认取配置 30)")
     parser.add_argument("--plan", action="store_true", help="PLAN 只读模式(仅检索与分析,不写文件;M1 新增)")
     parser.add_argument("--resume", action="store_true", help="恢复最近一次中断的 Run(M2 新增)")
-    parser.add_argument("--output-format", choices=["text", "json"], default="text",
-                        help="-p 模式输出格式:json 供 CI 使用(M2 新增)")
+    parser.add_argument("--output-format", choices=["text", "json", "stream-json"], default="text",
+                        help="-p 模式输出格式:json=收尾一次性;stream-json=NDJSON 流式逐事件(2026-09-24 新增)")
     parser.add_argument("--yes", action="store_true",
                         help="跳过审批交互全部允许(供 CI/headless;请确认任务可信,M2 新增)")
     args = parser.parse_args()
@@ -69,7 +69,10 @@ def main() -> int:
         # M2 启动 reconciliation:遗留 running 的 Run 修正为 interrupted(Checkpoint 为事实源)
         fixed = await store.reconcile_interrupted_runs()
         if fixed:
-            print(f"[otter] 启动修正:{fixed} 个遗留 Run 已标记 interrupted(otter --resume 可恢复)")
+            # 2026-09-24 修正:诊断提示改走 stderr——stream-json 模式下 stdout 必须是纯 NDJSON
+            # (真机首跑即被这行污染,非法 JSON 行会打断 jq 逐行消费)
+            print(f"[otter] 启动修正:{fixed} 个遗留 Run 已标记 interrupted(otter --resume 可恢复)",
+                  file=sys.stderr)
         adapter = OpenAICompatAdapter(config.base_url, config.api_key, config.model)
         summary_adapter = (
             adapter
@@ -84,7 +87,8 @@ def main() -> int:
 
         mcp_report = await connect_servers(registry)
         if mcp_report:
-            print("[otter] MCP: " + "; ".join(mcp_report))
+            # 2026-09-24 修正:同上,诊断提示走 stderr 保 stdout 纯 NDJSON
+            print("[otter] MCP: " + "; ".join(mcp_report), file=sys.stderr)
         loop = AgentLoop(
             adapter, registry, store,
             summarizer=RollingSummarizer(summary_adapter),
@@ -107,6 +111,11 @@ def main() -> int:
                 return await run_resume(loop, store, max_steps)
             if args.prompt is not None:
                 mode = "plan" if args.plan else "normal"
+                if args.output_format == "stream-json":
+                    # 2026-09-24 headless stream-json:NDJSON 流式(常配 --yes 供 CI)
+                    from otter.repl import run_single_stream
+
+                    return await run_single_stream(loop, store, args.prompt, max_steps, mode)
                 return await run_single(loop, store, args.prompt, max_steps, mode,
                                         json_output=args.output_format == "json")
             await run_repl(loop, store, max_steps)

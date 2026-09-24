@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260924m"  # 2026-09-24 交付物页(列表+预览+打开;index.html ?v= 同步)
+WEB_BUILD = "20260924n"  # 2026-09-24 rail 徽标:chat 运行中/runs 新历史/artifacts 新交付物(index.html ?v= 同步)
 
 
 class DiffGateSession:

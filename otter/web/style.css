@@ -55,6 +55,13 @@ body {
   background: transparent; color: var(--muted);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; margin-bottom: 6px; transition: all 140ms ease;
+  position: relative;  /* 2026-09-24 rail 徽标:.nav-dot 绝对定位的锚点 */
+}
+/* 2026-09-24 rail 徽标:chat 运行中 / runs 新历史 / artifacts 新交付物 的小圆点 */
+.nav-dot {
+  position: absolute; top: 5px; right: 5px; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--ok);
+  box-shadow: 0 0 0 2px rgba(45, 149, 100, 0.18);
 }
 .rail-item:hover { background: var(--bg-panel-raised); color: var(--accent); }
 .rail-item.active { background: var(--accent-soft); color: var(--accent); }
