@@ -52,6 +52,13 @@ def full_registry(store: Store, activated: set[str] | None = None,
     registry.register(_mark_deferred(SkillListTool()))
     # 2026-09-24 Skill 运行时注入配套:brief 常驻 system,正文按需读(deferred 省 schema)
     registry.register(_mark_deferred(SkillReadTool()))
+    # 2026-09-24 身份通用化配套:通用小工具包——current_time 常驻(高频刚需,
+    # schema 极短);web_fetch/calculate 低频走 deferred(tool_search 激活)
+    from otter.tools.general import CalculateTool, CurrentTimeTool, WebFetchTool
+
+    registry.register(CurrentTimeTool())
+    registry.register(_mark_deferred(WebFetchTool()))
+    registry.register(_mark_deferred(CalculateTool()))
     # Replan 领域工具包(说明书 M4 示范):get_schedule/simulate/commit
     import os
 

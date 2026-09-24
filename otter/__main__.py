@@ -23,7 +23,7 @@ from otter.tools.builtin import builtin_registry
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="otter", description="otter — 轻量 CLI 编码 Agent")
+    parser = argparse.ArgumentParser(prog="otter", description="otter — 轻量本地通用 AI 助手(编码/文件/命令/日常)")
     parser.add_argument("-p", "--prompt", help="单任务模式:执行该任务后退出", default=None)
     parser.add_argument("--gui", action="store_true", help="启动桌面 GUI 薄壳(Tkinter,2026-09-19 新增)")
     parser.add_argument("--gui-probe", action="store_true", help="GUI 诊断模式:启动后跑 evaluate_js 真值探针并退出(2026-09-23)")

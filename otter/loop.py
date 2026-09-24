@@ -52,7 +52,9 @@ MODE_PLAN = "plan"
 # 修正(2026-09-22 M3):repo_map 与 tool_search 是只读/元工具,应进 Plan 白名单
 # 修正(2026-09-24):skill_read 也是纯读(读技能文件),漏进白名单导致 PLAN 模式
 # 反而用不上技能——真机暴露:模型调 skill_read 被只读校验拦截(注入了却读不了)
-PLAN_TOOLS = {"read_file", "grep", "glob", "repo_map", "tool_search", "skill_read"}
+# 2026-09-24 身份通用化:web_fetch(只读网页)/calculate(纯计算)同为只读,一并放行
+PLAN_TOOLS = {"read_file", "grep", "glob", "repo_map", "tool_search", "skill_read",
+              "web_fetch", "calculate"}
 WRITE_TOOLS = {"write_file", "edit_file"}            # 成功后触发 git 自动提交
 
 # 2026-09-23 提示词套件重构:BASE_SYSTEM 移至 otter/prompts.py(五段式重写,
