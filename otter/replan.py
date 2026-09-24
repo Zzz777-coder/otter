@@ -1,11 +1,12 @@
-"""Replan 领域工具包(M4 示范,说明书 P2/8 章;绑 KAIST 申请主线的核心演示)。
+"""Replan 领域工具包(M4 示范,说明书 P2/8 章;领域扩展示例)。
 
 场景:生产重计划——急单插入/设备故障/物料延误下,对一组工单做人工重计划。
 数据:模拟车间(5 台机器 × 12 张工单),确定性生成,可复现。
-设计要点:otter 的"领域扩展底座"叙事——同一个 CLI,装入 replan 工具包
+设计要点:otter 的"领域扩展底座"示范——同一个 CLI,装入 replan 工具包
 即变身为领域 Agent;工具面=get_schedule(读)/simulate_change(沙盘)/
 commit_reschedule(提交),与编码场景的 read/edit/bash 同构(读-试-写三分)。
-Skill Learning 从重计划 Trace 提炼启发式规则 = KAIST 叙事的技术证明。
+2026-09-24 用户要求改为通用默认:本包默认**不**装载,保持 otter 的通用编码
+助理身份;需要领域演示时显式 OTTER_REPLAN=1 开启。
 """
 
 from __future__ import annotations

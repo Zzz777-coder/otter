@@ -55,7 +55,9 @@ def full_registry(store: Store, activated: set[str] | None = None,
     # Replan 领域工具包(说明书 M4 示范):get_schedule/simulate/commit
     import os
 
-    if os.environ.get("OTTER_REPLAN", "1") not in ("0", "false", "no"):
+    # 2026-09-24 用户要求:默认不装载——排程工具的领域描述曾混入模型自我认知
+    # ("编码助理兼车间排程助手");回归通用编码助理身份,演示时显式 OTTER_REPLAN=1
+    if os.environ.get("OTTER_REPLAN", "0") not in ("0", "false", "no"):
         from otter.replan import build_replan_tools
 
         for t in build_replan_tools():
