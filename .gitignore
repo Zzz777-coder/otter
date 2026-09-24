@@ -13,3 +13,4 @@ __pycache__/
 build/
 dist/
 otter_agent.egg-info/
+dist_pypi/

@@ -45,11 +45,13 @@ def full_registry(store: Store, activated: set[str] | None = None,
         registry.register(RepoMapTool(RepoMap()))
     # M4:Artifact 产物发布 + Skill 列表 + Replan 领域包(deferred)
     from otter.artifact import ArtifactPublishTool
-    from otter.skills import SkillListTool
+    from otter.skills import SkillListTool, SkillReadTool
 
     # 2026-09-23 artifact_publish 改为常驻(用户要求文件预览,模型需随时可见)
     registry.register(ArtifactPublishTool())
     registry.register(_mark_deferred(SkillListTool()))
+    # 2026-09-24 Skill 运行时注入配套:brief 常驻 system,正文按需读(deferred 省 schema)
+    registry.register(_mark_deferred(SkillReadTool()))
     # Replan 领域工具包(说明书 M4 示范):get_schedule/simulate/commit
     import os
 

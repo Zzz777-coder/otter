@@ -1,7 +1,21 @@
 [project]
 name = "otter-agent"
-version = "0.1.0"
-description = "Otter — 轻量级 Python CLI 编码 Agent(为 DeepSeek 等模型一等优化;领域扩展底座)"
+version = "0.2.0"  # 2026-09-24 首发:R6-R14(make_pdf/记忆页/交付物页/徽标/stream-json/Anthropic adapter/Skill 注入)
+description = "Otter — 轻量级 Python CLI 编码 Agent(OpenAI 兼容 + Anthropic 原生;双层记忆/Plan-Act/Skill/GUI)"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Zzz777-coder" }]
+keywords = ["agent", "coding-agent", "cli", "llm", "deepseek", "anthropic", "ai"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+]
 requires-python = ">=3.12"
 dependencies = [
     "openai>=1.50",      # 模型接入:DeepSeek/OpenAI 走同一兼容协议(说明书选型:不用 litellm,减少抽象层)
@@ -10,7 +24,12 @@ dependencies = [
     "mcp>=1.0",          # M4:MCP 客户端(stdio)
     "fpdf2>=2.8",        # 2026-09-24 R6:make_pdf 原生生成真 PDF(纯 Python,防伪造二进制交付)
     "httpx2>=2",         # 2026-09-24 Anthropic 原生 adapter 的 HTTP/SSE 层(openai 3.x 同源依赖)
+    "tiktoken>=0.7",     # 2026-09-24 发布冒烟暴露:context/estimator 硬 import 却未声明(干净 venv 装完启动即崩)
 ]
+
+[project.urls]
+Homepage = "https://github.com/Zzz777-coder/otter"
+Issues = "https://github.com/Zzz777-coder/otter/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

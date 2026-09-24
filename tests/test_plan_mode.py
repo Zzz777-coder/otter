@@ -100,3 +100,11 @@ def test_approved_plan_context_injected_on_execution_run(tmp_path: Path, monkeyp
     assert result.ok
     assert "<approved_plan>" in adapter.systems[0] and "## 验收标准" in adapter.systems[0]
     assert "已采纳的计划" in adapter.systems[0]
+
+
+def test_plan_whitelist_includes_skill_read():
+    """2026-09-24 回归:skill_read 是纯读工具必须进 PLAN 白名单——真机曾暴露
+    <skills> 注入后模型调 skill_read 被只读校验拦截(注入了却读不了)。"""
+    from otter.loop import PLAN_TOOLS
+
+    assert "skill_read" in PLAN_TOOLS

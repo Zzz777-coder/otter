@@ -50,7 +50,9 @@ MODE_PLAN = "plan"
 # 修正(2026-09-22):Plan 白名单去掉 bash——bash 可执行写操作,保留它违反
 # "结构上只读"原则(说明书 5.5);检索能力由 read_file/grep/glob 完整覆盖
 # 修正(2026-09-22 M3):repo_map 与 tool_search 是只读/元工具,应进 Plan 白名单
-PLAN_TOOLS = {"read_file", "grep", "glob", "repo_map", "tool_search"}
+# 修正(2026-09-24):skill_read 也是纯读(读技能文件),漏进白名单导致 PLAN 模式
+# 反而用不上技能——真机暴露:模型调 skill_read 被只读校验拦截(注入了却读不了)
+PLAN_TOOLS = {"read_file", "grep", "glob", "repo_map", "tool_search", "skill_read"}
 WRITE_TOOLS = {"write_file", "edit_file"}            # 成功后触发 git 自动提交
 
 # 2026-09-23 提示词套件重构:BASE_SYSTEM 移至 otter/prompts.py(五段式重写,
@@ -151,6 +153,7 @@ class AgentLoop:
         self.run_budget = run_budget
         self.base_system = base_system  # 2026-09-23 套件化:None=用 BASE_SYSTEM(主循环默认)
         self._budget_hint = ""  # 每 Run 重置;注入请求视图 system 尾部(不污染消息序列)
+        self._skills_brief = ""  # 2026-09-24 Skill 运行时注入:每 Run 开始重读(转正后下次 Run 生效)
         # M3 分层 edit format:auto=按模型启发(说明书:弱模型整文件替换更稳)
         model_name = (getattr(adapter, "model", "") or "").lower()
         if edit_format == "auto":
@@ -220,6 +223,9 @@ class AgentLoop:
             parts.append(approved_plan_note(self._plan_context))
         if self.instructions:
             parts.append(f"<project_instructions>\n{self.instructions}\n</project_instructions>")
+        if getattr(self, "_skills_brief", ""):
+            # 2026-09-24 Skill 注入:转正技能 cue(name+description;正文经 skill_read 按需取)
+            parts.append(self._skills_brief)
         if self.memory_bundle:
             _, core, _ = self.memory_bundle
             core_text = core.render()
@@ -253,6 +259,14 @@ class AgentLoop:
         # Plan Mode v2:PLAN 模式注入结构化计划指令;plan_context 供采纳后执行跑
         self._plan_mode_directive = mode == MODE_PLAN
         self._plan_context = plan_context
+        # 2026-09-24 Skill 运行时注入:每 Run 读一次已转正技能(name+description 的 cue);
+        # 失败静默(降级取向)——技能注入不应阻断主流程
+        try:
+            from otter.skills import load_skills_brief, render_skills_brief
+
+            self._skills_brief = render_skills_brief(load_skills_brief())
+        except Exception:
+            self._skills_brief = ""
         seq = len(history)
         await self.store.append_message(user_message, seq, run_id, conversation_id)
         seq += 1
