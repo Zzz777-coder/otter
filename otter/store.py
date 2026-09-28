@@ -104,6 +104,12 @@ class Store:
         await self._db.commit()
         return int(cur.lastrowid)
 
+    async def latest_run_id(self) -> int | None:
+        """v0.3(2026-09-24):最近一次 Run 的 id(/usage 缺省目标)。"""
+        async with self._db.execute("SELECT MAX(id) FROM runs") as cur:
+            row = await cur.fetchone()
+        return int(row[0]) if row and row[0] is not None else None
+
     async def finish_run(self, run_id: int, status: str, stop_reason: str) -> None:
         await self._db.execute(
             "UPDATE runs SET status=?, stop_reason=?, finished_at=? WHERE id=?",
@@ -189,6 +195,19 @@ class Store:
             (run_id, type_, json.dumps(payload, ensure_ascii=False, default=str), _now()),
         )
         await self._db.commit()
+
+    async def load_run_events(self, run_id: int) -> list[dict[str, Any]]:
+        """v0.3(2026-09-24):按 Run 读事件流(Trace 分账/详情回放用)。
+        返回 [{type, payload, created_at}] 按插入序。"""
+        async with self._db.execute(
+            "SELECT type, payload_json, created_at FROM events WHERE run_id=? ORDER BY rowid",
+            (run_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {"type": t, "payload": json.loads(p or "{}"), "created_at": c}
+            for t, p, c in rows
+        ]
 
     # ── M2 Evidence(可逆压缩的存档侧)──────────────────────────────
 

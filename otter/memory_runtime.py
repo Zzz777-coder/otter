@@ -108,28 +108,33 @@ from otter.prompts import REFLECT_PROMPT
 
 
 async def run_reflection(adapter, user_message: str, final_text: str,
-                         store: FileMemoryStore, core: CoreMemory, ctx: dict) -> str:
-    """Run 后反思(FINAL 时调用):单动作,失败只返回诊断文本,绝不影响主结果(隔离取向)。"""
+                         store: FileMemoryStore, core: CoreMemory, ctx: dict) -> tuple[str, tuple[int, int] | None]:
+    """Run 后反思(FINAL 时调用):单动作,失败只返回诊断文本,绝不影响主结果(隔离取向)。
+    v0.3(2026-09-24):返回 (note, usage)——usage=(in,out) 供 Trace 分账记账
+    (此前反思烧的 token 只混进总数,账本上看不见;vesta 对齐)。"""
     from otter.models.types import Message
 
     convo = f"[用户]{user_message[:1500]}\n[助手结论]{final_text[:1500]}"
+    usage: tuple[int, int] | None = None
     try:
         resp = await adapter.complete_stream(
             [Message(role="user", content=REFLECT_PROMPT + "\n\n" + convo)], tools=None
         )
+        usage = (resp.usage.input_tokens or 0, resp.usage.output_tokens or 0) \
+            if resp.usage.input_tokens is not None else None
         text = (resp.content or "").strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         action = json.loads(text)
     except Exception as exc:
-        return f"(反思失败被隔离:{type(exc).__name__})"
+        return f"(反思失败被隔离:{type(exc).__name__})", usage
     if action.get("action") == "create" and action.get("title") and action.get("content"):
         e = store.create(action["title"], action.get("summary", ""), action["content"])
-        return f"(反思新建 {e.mid})"
+        return f"(反思新建 {e.mid})", usage
     if action.get("action") == "update":
         mid = action.get("mid", "")
         if ctx["reads"].get(mid) != action.get("revision"):
-            return "(反思 update 被拒:本 Run 未读过或 revision 不匹配——防幻觉写)"
+            return "(反思 update 被拒:本 Run 未读过或 revision 不匹配——防幻觉写)", usage
         e = store.update(mid, int(action.get("revision", 0)),
                          title=action.get("title"), summary=action.get("summary"),
                          content=action.get("content"))
-        return f"(反思更新 {mid})" if e else "(反思 update 失败)"
-    return "(反思:none)"
+        return (f"(反思更新 {mid})" if e else "(反思 update 失败)"), usage
+    return "(反思:none)", usage
