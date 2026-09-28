@@ -49,7 +49,8 @@ class FakeStore:
         pass  # M2:loop 新增落档调用,fake 兼容
 
     async def append_event(self, run_id, type_, payload):
-        self.events.append(type_)
+        # v0.3:存 (type, payload) 元组——重试/取消/分账用例需要断言事件字段
+        self.events.append((type_, payload))
 
 
 class EchoTool(Tool):
@@ -130,3 +131,137 @@ def test_usage_none_semantics_preserved():
     loop, _ = _loop(adapter)
     result = asyncio.run(loop.run([], Message(role="user", content="t"), run_id=1))
     assert result.usage.input_tokens is None and result.usage.output_tokens is None
+
+
+# ── 2026-09-24 运行中取消:协作检查点 ─────────────────────────────
+
+def test_cancel_before_first_step():
+    """Run 前取消事件已置位 → 第一步检查点即收尾,零模型调用,终态 cancelled。"""
+    from otter.loop import STOP_CANCELLED
+
+    adapter = FakeAdapter([ModelResponse(content="不应被调用", usage=ModelUsage(1, 1))])
+    loop, store = _loop(adapter)
+    ev = asyncio.Event()
+    ev.set()  # 预置:run 一进 Step① 检查点即取消
+    result = asyncio.run(loop.run([], Message(role="user", content="t"), run_id=1,
+                                  cancel_event=ev))
+    assert result.ok is False and result.stop_reason == STOP_CANCELLED
+    assert result.model_calls == 0 and result.tool_calls == 0
+    assert store.run_status == ("cancelled", STOP_CANCELLED)
+    assert any(t == "RUN_CANCELLED" for t, _ in store.events)
+
+
+def test_cancel_between_tools_skips_rest():
+    """工具循环内取消:第一个工具执行后置位 → 第二个工具前检查点拦截,不再烧模型。"""
+    from otter.loop import STOP_CANCELLED
+
+    # 两个 echo 调用同一响应分岔(一次模型响应带两个 tool_calls)
+    adapter = FakeAdapter([
+        ModelResponse(content=None, tool_calls=[
+            ToolCall(id="c1", name="echo", arguments={"text": "a"}),
+            ToolCall(id="c2", name="echo", arguments={"text": "b"}),
+        ], usage=ModelUsage(10, 2)),
+        ModelResponse(content="完成", usage=ModelUsage(5, 1)),  # 不应被消费
+    ])
+    loop, store = _loop(adapter)
+    ev = asyncio.Event()
+
+    # 借 evidence 归档钩子不可行——直接在 EchoTool 上挂 set?更简单:用 on_event 回调
+    # 在第一个 TOOL_COMPLETED 后置位取消(模拟"工具跑完用户立刻点停止")
+    async def on_event(type_, payload):
+        if type_ == "TOOL_COMPLETED":
+            ev.set()
+
+    result = asyncio.run(loop.run([], Message(role="user", content="t"), run_id=1,
+                                  cancel_event=ev, on_event=on_event))
+    assert result.ok is False and result.stop_reason == STOP_CANCELLED
+    assert result.tool_calls == 1          # c1 执行了,c2 被检查点拦下
+    assert result.model_calls == 1         # 第二次模型调用没有发生
+    assert len(adapter.script) == 1        # 收尾脚本未被消费
+    assert store.run_status == ("cancelled", STOP_CANCELLED)
+    # 协议安全:取消时历史尾部为 tool 结果(c1),不是孤立 tool_calls
+    assert store.messages[-1].role == "tool" and store.messages[-1].tool_call_id == "c1"
+
+
+# ── v0.3 健壮性话术族:空响应/协议文本重试 + Closing 第四段 ──────────
+
+def test_empty_response_retry_then_final():
+    """空响应(无文本无工具)→ 注入重试消息再跑一圈;仍空则按 FINAL 收(不死循环)。"""
+    adapter = FakeAdapter([
+        ModelResponse(content="", usage=ModelUsage(10, 1)),      # 第一次:空
+        ModelResponse(content="这次有答案了", usage=ModelUsage(10, 1)),  # 重试后:正常
+    ])
+    loop, store = _loop(adapter)
+    result = asyncio.run(loop.run([], Message(role="user", content="t"), run_id=1))
+    assert result.ok and result.stop_reason == STOP_FINAL
+    assert result.final_text == "这次有答案了"
+    assert any(t == "MODEL_EMPTY_RETRY" for t, _ in store.events)
+    # 消息序列:空 assistant 后紧跟 user 重试消息(协议合法)
+    assert [m.role for m in store.messages] == ["user", "assistant", "user", "assistant"]
+
+
+def test_textual_tool_call_retry():
+    """模型把 <tool_calls> 当正文吐出 → 注入重试话术;恢复结构化或正常文本即收。"""
+    from otter.loop import looks_like_textual_tool_call
+
+    assert looks_like_textual_tool_call("看这个 <tool_calls>{...}</TOOL_CALLS>")
+    assert not looks_like_textual_tool_call("正常回答")
+    adapter = FakeAdapter([
+        ModelResponse(content="<tool_calls>{\"name\":\"echo\"}</tool_calls>", usage=ModelUsage(10, 1)),
+        ModelResponse(content="改好了,直接给结论", usage=ModelUsage(10, 1)),
+    ])
+    loop, store = _loop(adapter)
+    result = asyncio.run(loop.run([], Message(role="user", content="t"), run_id=1))
+    assert result.ok and result.final_text == "改好了,直接给结论"
+    assert any(t == "MODEL_TEXTUAL_RETRY" for t, _ in store.events)
+
+
+def test_budget_closing_fourth_stage():
+    """85% finalizing → 92% closing(工具面收窄);分界事件各发一次。"""
+    adapter = FakeAdapter([
+        # 一次大调用直接跳到 85%+ 段(finalizing)
+        ModelResponse(content=None, tool_calls=[
+            ToolCall(id="c1", name="echo", arguments={"text": "x"})], usage=ModelUsage(880, 20)),
+        # 第二次到 92%+(closing)
+        ModelResponse(content=None, tool_calls=[
+            ToolCall(id="c2", name="echo", arguments={"text": "y"})], usage=ModelUsage(60, 10)),
+        ModelResponse(content="完成", usage=ModelUsage(5, 1)),
+    ])
+    loop, store = _loop(adapter)
+    # run_budget=1000:880/1000=88% → finalizing;960 → closing
+    loop.run_budget = 1000
+    result = asyncio.run(loop.run([], Message(role="user", content="t"), run_id=1))
+    assert result.ok
+    assert any(t == "RUN_BUDGET_FINALIZING" for t, _ in store.events)
+    assert any(t == "RUN_BUDGET_CLOSING" for t, _ in store.events)
+
+
+# ── v0.3 多模型角色:反思走 reflection_adapter ─────────────────────
+
+def test_reflection_uses_reflection_adapter(tmp_path):
+    """反思调用落在 reflection_adapter(便宜模型),主 adapter 只跑主轮;分账事件带 usage。"""
+    from otter.memory import CoreMemory, FileMemoryStore
+
+    class ReflAdapter(FakeAdapter):
+        def __init__(self):
+            super().__init__([
+                ModelResponse(content='{"action":"none"}', usage=ModelUsage(77, 7)),
+            ])
+
+    main_adapter = FakeAdapter([
+        ModelResponse(content="好的,已经了解你的偏好了。", usage=ModelUsage(100, 20)),
+    ])
+    refl = ReflAdapter()
+    registry = ToolRegistry()
+    loop = AgentLoop(main_adapter, registry, FakeStore(),
+                     memory_bundle=(FileMemoryStore(tmp_path / "m"), CoreMemory(tmp_path / "m"),
+                                    {"reads": {}, "run_id": None}),
+                     reflection_adapter=refl)
+    # user 消息带长期信号词("记住")→ 触发 Run 后反思
+    result = asyncio.run(loop.run([], Message(role="user", content="请记住我的偏好是简洁回复风格"),
+                                  run_id=1))
+    assert result.ok
+    assert len(main_adapter.script) == 0 and len(refl.script) == 0  # 两边各自消费完
+    # 反思 usage 进事件(分账"记忆反思"行数据源)
+    assert any(t == "MEMORY_REFLECTION" and p.get("usage_in") == 77
+               for t, p in loop.store.events)

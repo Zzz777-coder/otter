@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os  # 2026-09-24 会话页工作区切换:chdir 真切换用
 import re
 import sqlite3
 import sys
@@ -34,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260924r"  # 2026-09-24 历史页重合二修:摘要限宽含起点修正+右列 margin-left:auto 钉尾(index.html ?v= 同步)
+WEB_BUILD = "20260924u"  # 20260924u:新建/打开工作区(下拉末尾入口+目录选择框;index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -73,6 +74,12 @@ class OtterWebGui:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.db_path = Path.cwd() / ".otter" / "otter.db"
+        # 2026-09-24 最近工作区(用户要求):查看根——历史/记忆/交付物三个只读页
+        # 从这里取数据,切换只影响"查看",对话与写入仍绑启动目录(不做 chdir)
+        self.view_root = Path.cwd()
+        # 2026-09-24 会话页工作区切换(用户要求"开不同的工作区"):当前工作区根——
+        # switch_workspace 真切换(chdir+Store 重开)后更新;默认=启动目录
+        self.workspace_root = Path.cwd()
 
         self.current_cid: int | None = None
         self.history: list[Message] = []
@@ -94,6 +101,9 @@ class OtterWebGui:
         self._delta_next_flush = 0.0
         self._current_future = None  # 2026-09-22:运行中任务的句柄(停止键用)
         self._diffwin = None          # 2026-09-23:独立 diff 确认窗(懒创建)
+        # 2026-09-24 运行中取消:当前 Run 的 AgentLoop 引用与取消事件(stop_task 两段式用)
+        self._agent_loop = None
+        self._cancel_event = None
         # 2026-09-24 R7:写确认的会话级放行记忆(同目录一次允许,本会话不再逐次弹窗)
         self.gate_session = DiffGateSession()
 
@@ -169,6 +179,12 @@ class OtterWebGui:
 
         self.adapter = build_adapter(self.config.base_url, self.config.api_key, self.config.model,
                                      provider=self.config.provider, max_tokens=self.config.max_tokens)
+        # v0.3(2026-09-24):反思走便宜模型角色(OTTER_SUMMARY_MODEL;空=复用主模型)
+        self.reflection_adapter = (
+            self.adapter if not self.config.summary_model
+            else build_adapter(self.config.base_url, self.config.api_key, self.config.summary_model,
+                               provider=self.config.provider, max_tokens=self.config.max_tokens)
+        )
         convs = await self._conv_payload()
         self._js("onBackendReady", {"model": self.config.model, "conversations": convs})
 
@@ -225,7 +241,10 @@ class OtterWebGui:
                 _art.preview_fn = self._artifact_preview
             if self.memory_bundle is None:
                 self.memory_bundle = memory_bundle
-            result = await AgentLoop(
+            # 2026-09-24 运行中取消:保留 AgentLoop 实例引用 + 每 Run 新建 cancel event
+            # (stop_task 先优雅 request_cancel,检查点生效;0.6s 未退再硬 cancel 兜底)
+            self._cancel_event = asyncio.Event()
+            agent = AgentLoop(
                 self.adapter, registry, self.store,
                 approval_gate=build_gate(window=self.window),
                 preview_gate=diff_preview_gate,
@@ -233,11 +252,16 @@ class OtterWebGui:
                 memory_bundle=self.memory_bundle,
                 activated_tools=self._activated,  # 修正:与 ToolSearchTool 同一对象
                 run_budget=self.config.run_budget,
-            ).run(
+                # v0.3:反思走便宜模型角色(与 CLI 同配置)
+                reflection_adapter=getattr(self, "reflection_adapter", None),
+            )
+            self._agent_loop = agent
+            result = await agent.run(
                 self.history, Message(role="user", content=prompt), run_id, self.config.max_steps,
                 on_text_delta=self._on_delta,
                 on_event=on_event, summary_state=self.summary_state, conversation_id=cid,
                 mode=self.mode,  # 2026-09-23 常驻 Plan/Act 开关:PLAN=只读白名单+计划存盘(loop 既有机制)
+                cancel_event=self._cancel_event,  # 2026-09-24:协作取消(GUI 停止键)
             )
             if self._delta_buf:  # 收尾前冲干净残留 buffer
                 self._js("onDelta", "".join(self._delta_buf))
@@ -251,7 +275,8 @@ class OtterWebGui:
             self._js("onDone", {"summary": result.summary(), "final_text": result.final_text})
         except asyncio.CancelledError:
             # 2026-09-22 用户要求:思考中的停止键——取消运行中的任务,诚实落终态
-            await self.store.finish_run(run_id, "interrupted", "stopped")
+            # 2026-09-24:终态 interrupted → cancelled(协作取消/硬取消/REPL Ctrl+C 三路统一)
+            await self.store.finish_run(run_id, "cancelled", "stopped")
             self._js("onStopped", "")
         except Exception as exc:
             await self.store.finish_run(run_id, "failed", "error")
@@ -288,10 +313,21 @@ class OtterWebGui:
                 gui._current_future = fut  # 停止键可取消的句柄
 
             def stop_task(self):
-                """2026-09-22:思考中停止——取消运行中任务(Checkpoint 保留,可 --resume)"""
+                """2026-09-22:思考中停止;2026-09-24 升级为两段式:
+                ①优雅——经事件循环线程 set 取消 event,下一个检查点(Step 开头/工具前)
+                优雅收尾,在途工具不被硬切;②0.6s 未退再 fut.cancel() 硬停兜底
+                (检查点之间的长流式调用/长 bash 只能硬切,Checkpoint 仍保留可 --resume)"""
+                agent = getattr(gui, "_agent_loop", None)
+                if agent is not None and gui.loop is not None:
+                    asyncio.run_coroutine_threadsafe(agent.request_cancel(), gui.loop)
                 fut = getattr(gui, "_current_future", None)
-                if fut is not None and not fut.done():
-                    fut.cancel()
+
+                def _hard():
+                    if fut is not None and not fut.done():
+                        fut.cancel()
+
+                import threading
+                threading.Timer(0.6, _hard).start()  # 延迟硬停:给优雅检查点让路
 
             def toggle_mode(self):
                 """2026-09-23 常驻 Plan/Act 开关:翻转会话级模式并回推前端同步
@@ -340,18 +376,101 @@ class OtterWebGui:
                 gui._js("onConversations", fut.result(timeout=5))
 
             def get_runs(self):
-                return _runs_rows(gui)
+                # 2026-09-24 最近工作区:历史页按查看根(view_root)读,默认=启动目录
+                return _runs_rows(gui, db_path=gui.view_root / ".otter" / "otter.db")
+
+            def get_workspaces(self):
+                """2026-09-24 最近工作区(用户要求):列出 ~/.otter 登记的最近工作区。
+                current=当前工作区(2026-09-24 会话页可真切换,标记跟 workspace_root 走),
+                viewing=历史页的查看根——前端据此渲染两个下拉。"""
+                from otter.workspaces import list_workspaces
+
+                items = list_workspaces()
+                home = str(Path.home())
+                for it in items:
+                    it["current"] = it["path"] == str(gui.workspace_root)
+                    it["viewing"] = it["path"] == str(gui.view_root)
+                    # 路径展示缩写:家目录前缀替换为 ~,下拉里省宽度(纯显示用)
+                    it["display"] = "~" + it["path"][len(home):] if it["path"].startswith(home) else it["path"]
+                return items
+
+            def switch_workspace(self, path: str):
+                """2026-09-24 会话页工作区切换(用户要求:像历史页一样,会话列表正上方
+                放下拉;切过去=在那个工作区干活——新会话/发消息/写文件都属新根)。
+                真切换:chdir + Store 重开 + 会话级状态清空;运行中任务未结束拒绝切换。
+                同步等切换完成再返回(前端拿到 ok 时新根已生效,随后拉数据无时序竞争)。"""
+                p = Path(path).expanduser()
+                if not p.is_dir():
+                    return {"ok": False, "reason": "目录不存在"}
+                fut = getattr(gui, "_current_future", None)
+                if fut is not None and not fut.done():
+                    return {"ok": False, "reason": "任务运行中,结束后再切换"}
+
+                async def _switch():
+                    if gui.store is not None:
+                        await gui.store.close()
+                    os.chdir(p.resolve())
+                    gui.workspace_root = Path.cwd()
+                    gui.db_path = gui.workspace_root / ".otter" / "otter.db"
+                    gui.view_root = gui.workspace_root  # 查看根跟随(历史/记忆/交付物同区)
+                    gui.store = Store()
+                    await gui.store.open()
+                    # 会话级状态全部清空(换区不能串):当前会话/上下文缓存/记忆包/
+                    # 写盘放行记忆/工具激活名单
+                    gui.current_cid = None
+                    gui.history = []
+                    gui.summary_state = None
+                    gui.session_cache.clear()
+                    gui.memory_bundle = None
+                    gui.gate_session = DiffGateSession()
+                    gui._activated = None
+                    # 新区进最近清单(与启动登记同一函数)
+                    from otter.workspaces import register_workspace
+                    register_workspace(gui.workspace_root)
+                    convs = await gui._conv_payload()
+                    gui._js("onBackendReady", {"model": gui.config.model, "conversations": convs})
+                    gui._js("onMode", {"mode": gui.mode})
+
+                asyncio.run_coroutine_threadsafe(_switch(), gui.loop).result(timeout=8)
+                return {"ok": True, "path": str(gui.workspace_root)}
+
+            def pick_workspace(self):
+                """2026-09-24 新建/打开工作区(用户要求:下拉里没有的目标目录也能进)。
+                弹系统目录选择框(FOLDER_DIALOG,框内可新建文件夹)→ 选完走真切换;
+                取消/失败返回 ok=False 不动现状。
+                修正:pywebview 6.x 的 create_file_dialog 是**窗口实例方法**(非模块函数)。"""
+                if gui.window is None:
+                    return {"ok": False, "reason": "窗口未就绪"}
+                try:
+                    dirs = gui.window.create_file_dialog(webview.FOLDER_DIALOG, allow_multiple=False)
+                except Exception as exc:
+                    return {"ok": False, "reason": f"目录选择框异常:{exc}"}
+                if not dirs:
+                    return {"ok": False, "reason": "已取消"}
+                return self.switch_workspace(str(dirs[0]))
+
+            def set_view_workspace(self, path: str):
+                """切换查看工作区(只影响历史/记忆/交付物三个只读页)。
+                目录不存在或没有 .otter 库则拒绝(ok=False,前端保持原选中)。"""
+                p = Path(path).expanduser()
+                if not p.is_dir() or not (p / ".otter" / "otter.db").is_file():
+                    return {"ok": False, "path": str(gui.view_root)}
+                gui.view_root = p.resolve()
+                return {"ok": True, "path": str(gui.view_root)}
 
             def get_memory(self):
-                """2026-09-24 长期记忆页:纯读快照(双层记忆 Core/Ordinary 的 GUI 入口)"""
-                return _memory_payload()
+                """2026-09-24 长期记忆页:纯读快照(双层记忆 Core/Ordinary 的 GUI 入口);
+                2026-09-24 最近工作区:按查看根读取"""
+                return _memory_payload(gui.view_root / ".otter" / "memory")
 
             def get_artifacts(self):
-                """2026-09-24 交付物页:index.jsonl 纯读倒序(最新在前)"""
-                return _artifacts_payload()
+                """2026-09-24 交付物页:index.jsonl 纯读倒序(最新在前);
+                2026-09-24 最近工作区:按查看根读取"""
+                return _artifacts_payload(root=gui.view_root / ".otter" / "artifacts")
 
             def get_run_detail(self, run_id: int):
-                return _run_detail(gui, run_id)
+                return _run_detail(gui, run_id,
+                                   db_path=gui.view_root / ".otter" / "otter.db")
 
             def open_artifact(self, name: str, how: str = "open"):
                 """GUI 产物卡片三通道:open(OS 默认)/ finder / vscode"""
@@ -372,6 +491,7 @@ class OtterWebGui:
                     f"模型       {gui.config.model}\n"
                     f"最大步数   {gui.config.max_steps}\n"
                     f"工作区     {Path.cwd()}\n"
+                    f"查看       {gui.view_root}\n"  # 2026-09-24 最近工作区:当前查看根(≠工作区=跨区查看历史)
                     f"事件库     {gui.db_path}\n\n"
                     f"v7(2026-09-22):pywebview + 自写 HTML/CSS;\n"
                     f"图标 lucide(ISC)内联。实现代码全部自写。"
@@ -383,7 +503,9 @@ class OtterWebGui:
         """2026-09-23 用户要求:macOS Dock/状态栏图标从默认 Python 火箭换成水獭 🦦。
         图标源=otter/web/otter_icon.png(PIL 从 Apple Color Emoji 位图 160px 渲染后
         放大 512,离线生成);经 pyobjc(pywebview 6 macOS 既有依赖)设给 NSApplication。
-        仅 darwin 生效;图标缺失/桥失败静默跳过——装饰不应阻断 GUI 启动。"""
+        仅 darwin 生效;失败打 stderr 不再纯静默(2026-09-24 真机暴露:此前
+        imageWithContentsOfFile_ 类方法根本不存在,AttributeError 被 pass 吞掉,
+        图标从未设置成功——Dock 一直显示白色占位,白色彩排了两轮才定位到这)。"""
         if sys.platform != "darwin":
             return
         try:
@@ -391,16 +513,22 @@ class OtterWebGui:
 
             icon = WEB_DIR / "otter_icon.png"
             if not icon.is_file():
+                print("[otter] dock icon: 文件缺失", file=sys.stderr)
                 return
-            img = AppKit.NSImage.imageWithContentsOfFile_(str(icon.resolve()))
+            # 修正(2026-09-24):NSImage 无 +imageWithContentsOfFile: 类方法,
+            # 正确写法是 alloc().initWithContentsOfFile_()
+            img = AppKit.NSImage.alloc().initWithContentsOfFile_(str(icon.resolve()))
             if img is None:
+                print("[otter] dock icon: NSImage 加载失败", file=sys.stderr)
                 return
             AppKit.NSApplication.sharedApplication().setApplicationIconImage_(img)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[otter] dock icon: 设置失败 {type(exc).__name__}: {exc}", file=sys.stderr)
 
     def run(self) -> None:
-        self._set_dock_icon()  # 2026-09-23 用户要求:Dock 图标从默认 Python 换成水獭
+        # 2026-09-24 反转再确认:用户要水獭图标——恢复调用(此前一次"恢复默认"反而
+        # 使 Dock 变成白色占位,pywebview 无 bundle 图标时 Dock 即显示空白)
+        self._set_dock_icon()  # 水獭图标(otter/web/otter_icon.png)
         self.window = webview.create_window(
             # 2026-09-24 回滚:?b= 查询串会让 WKWebView 拒载 file:// 入口页(窗口全白,
             # 真机暴露)——入口页缓存改用 no-cache meta(见 index.html),URL 保持素 file://
@@ -585,11 +713,12 @@ def _memory_payload(root: Path | None = None) -> dict:
     return {"root": str(root), "core": core, "entries": entries}
 
 
-def _artifacts_payload(limit: int = 50) -> list[dict]:
+def _artifacts_payload(limit: int = 50, root: Path | None = None) -> list[dict]:
     """交付物页数据快照(2026-09-24 新增 GUI 页)。纯读 index.jsonl 倒序(最新在前);
     刻意**不**经 artifact.list_artifacts——其 _artifacts_root() 带 mkdir 写副作用,
-    查看页不应触发写。坏行跳过(与 list_artifacts 同容错)。"""
-    p = Path.cwd() / ".otter" / "artifacts" / "index.jsonl"
+    查看页不应触发写。坏行跳过(与 list_artifacts 同容错)。
+    2026-09-24 最近工作区:root 参数=artifacts 根目录(默认当前工作区的 .otter/artifacts)。"""
+    p = (root or (Path.cwd() / ".otter" / "artifacts")) / "index.jsonl"
     if not p.is_file():
         return []
     out: list[dict] = []
@@ -601,14 +730,15 @@ def _artifacts_payload(limit: int = 50) -> list[dict]:
     return out[:limit]
 
 
-def _runs_rows(gui: "OtterWebGui") -> list[dict]:
+def _runs_rows(gui: "OtterWebGui", db_path: Path | None = None) -> list[dict]:
     """历史记录行(2026-09-24 R8 用户要求:一整个 chat 会话整理成一条历史记录,
     不再每句话/每个 run 一条)。按会话分组聚合:
     - 摘要 = 会话标题(conversations.title,空则取首条用户消息)
     - 已完成 = 该会话全部 run 完成;否则如实标 中断/失败/进行中(按严重度取其一)
     - 模式 = 最近一次 run 的模式;时间 = 最近活动;ids 列带「会话 #id · N 次运行」
-    - 无会话归属的旧 run 保留单条(点行展开 Trace 兜底)"""
-    db = _db_ro(gui.db_path)
+    - 无会话归属的旧 run 保留单条(点行展开 Trace 兜底)
+    2026-09-24 最近工作区:db_path 参数=查看工作区的事件库(默认启动目录,兼容旧行为)"""
+    db = _db_ro(db_path or gui.db_path)
     if db is None:
         return []
     try:
@@ -645,13 +775,14 @@ def _runs_rows(gui: "OtterWebGui") -> list[dict]:
         out = []
         for key, g in groups.items():
             st = g["statuses"]
-            # 会话级状态(按严重度):进行中 > 失败 > 中断 > 全完成
+            # 会话级状态(按严重度):进行中 > 失败 > 取消/中断 > 全完成
+            # 2026-09-24:新增 cancelled 归组(协作取消统一终态;interrupted 仅存于旧库记录)
             if any(s == "running" for s in st):
                 label, kind, done = "进行中", "run", False
             elif any(s == "failed" for s in st):
                 label, kind, done = "失败", "err", False
-            elif any(s == "interrupted" for s in st):
-                label, kind, done = "中断", "warn", False
+            elif any(s in ("cancelled", "interrupted") for s in st):
+                label, kind, done = "取消", "warn", False
             else:
                 label, kind, done = "完成", "ok", True
             cid = key if not isinstance(key, tuple) else None
@@ -673,8 +804,9 @@ def _runs_rows(gui: "OtterWebGui") -> list[dict]:
         db.close()
 
 
-def _run_detail(gui: "OtterWebGui", run_id: int) -> str:
-    db = _db_ro(gui.db_path)
+def _run_detail(gui: "OtterWebGui", run_id: int, db_path: Path | None = None) -> str:
+    # 2026-09-24 最近工作区:db_path 参数=查看工作区的事件库(默认启动目录,兼容旧行为)
+    db = _db_ro(db_path or gui.db_path)
     if db is None:
         return "(无事件库)"
     lines = [f"Run #{run_id} — Trace", "=" * 46]
@@ -707,6 +839,19 @@ def _run_detail(gui: "OtterWebGui", run_id: int) -> str:
                 lines.append(f"{hhmmss}  ! 收尾专用步(零工具)")
         lines += ["", f"tokens: {tokens_in} in / {tokens_out} out",
                   "工具统计: " + (" · ".join(f"{k}×{v}" for k, v in tools.items()) or "无")]
+        # v0.3(2026-09-24):Trace 分账——主模型/压缩/反思各行其责
+        # (vesta Run Detail 同口径;旧库事件无 usage 键的行记 0)
+        from otter.trace import summarize_run_usage
+
+        ledger = summarize_run_usage(
+            [{"type": t, "payload": json.loads(pj or "{}")} for t, pj, _ in events])
+        lines += ["", "── 分账 ──",
+                  f"主模型    {ledger['main_agent']['input']}in/{ledger['main_agent']['output']}out"
+                  f"({ledger['main_agent']['calls']} 次)",
+                  f"上下文压缩 {ledger['context_summary']['input']}in/{ledger['context_summary']['output']}out"
+                  f"({ledger['context_summary']['calls']} 次)",
+                  f"记忆反思  {ledger['memory_reflection']['input']}in/{ledger['memory_reflection']['output']}out"
+                  f"({ledger['memory_reflection']['calls']} 次)"]
     except sqlite3.Error as exc:
         lines.append(f"读取失败:{exc}")
     finally:

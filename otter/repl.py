@@ -21,7 +21,7 @@ from otter.models.types import Message
 console = Console()
 
 BANNER = """[bold cyan]otter[/] — 轻量 CLI 编码 Agent (M1)
-命令:/init 生成 AGENTS.md · /undo 回滚上组修改 · /plan /act 切只读/执行 · /context 看压缩状态 · /reset 清空 · exit 退出"""
+命令:/init 生成 AGENTS.md · /undo 回滚上组修改 · /plan /act 切只读/执行 · /context 看压缩状态 · /permissions 管理权限规则 · /task 查看任务 · /reset 清空 · exit 退出"""
 
 
 def _render_event(type_: str, payload: dict) -> None:
@@ -38,12 +38,19 @@ def _render_event(type_: str, payload: dict) -> None:
         console.print(f"[dim]—— step {payload.get('step')} 思考中 ——[/]")
     elif type_ == "RUN_FINALIZING":
         console.print("[bold red]! 达到最大步数,进入收尾总结[/]")
+    elif type_ == "RUN_CANCELLED":
+        # 2026-09-24:协作取消事件的终端提示(GUI 优雅停止/检查点命中)
+        console.print(f"[bold red]⏹ 已取消(第 {payload.get('step')} 步检查点)[/]")
     elif type_ == "PLAN_RESULT":
-        # Plan Mode v2:计划校验结果提示
+        # Plan Mode v2:计划校验结果提示;v0.3 起优先 Task 契约(有 task_id=结构化计划)
         if payload.get("valid"):
-            console.print(f"[bold cyan]📋 计划已存盘:{payload.get('plan_file','')}[/]")
+            if payload.get("task_id"):
+                console.print(f"[bold cyan]📋 计划任务已创建:{str(payload['task_id'])[:8]}"
+                              "(采纳后生效,可用 /task acc <前缀>)[/]")
+            else:
+                console.print(f"[bold cyan]📋 计划已存盘:{payload.get('plan_file','')}[/]")
         else:
-            console.print("[yellow]⚠ 计划缺少'## 步骤'小节(格式不完整)[/]")
+            console.print("[yellow]⚠ 计划缺少'## 步骤'小节且未创建计划任务(格式不完整)[/]")
     elif type_ == "DIFF_PREVIEW":
         # M3.5:写操作落盘前的变更预览(CLI 信任 git+/undo,自动写;先给人看)
         console.print(f"\n[bold blue]📝 变更预览 {payload.get('name')} → {payload.get('path')}[/]")
@@ -133,27 +140,35 @@ async def _dispatch(loop: AgentLoop, store, history: list[Message], state: Summa
             on_event=on_event,  # 修正(2026-09-22):接入渲染回调(M0 起漏接)
             plan_context=plan_context,  # Plan Mode v2:采纳计划注入
         )
-        # M4(2026-09-22):Run 成功后过 Skill 提炼(watermark 去重+候选落盘;
-        # 失败静默不影响主结果——隔离取向)
+        # v0.4(2026-09-24):Skill Learning 升级为簇挖掘批处理(vesta skill_learning 移植)——
+        # 每 Run 即时蒸馏(maybe_distill)退役;Completed Task 凑满一批
+        # (OTTER_SKILL_BATCH,默认 20)才触发挖掘,走反思级便宜模型角色;
+        # 失败静默不影响主结果(隔离取向)
         if result is not None and result.ok and loop.adapter is not None:
             try:
-                from otter.skills import maybe_distill
+                from otter.skill_learning import maybe_run_mining
 
-                note = await maybe_distill(loop.adapter, run_id, prompt, result.final_text)
-                if note:
-                    if emitter is None:
-                        console.print(f"[magenta]{note}[/]")
-                    else:
-                        emitter.event("SKILL_DISTILLED", {"note": note})
+                task_store = getattr(loop.registry, "task_store", None)
+                if task_store is not None:
+                    note = await maybe_run_mining(
+                        getattr(loop, "reflection_adapter", None) or loop.adapter,
+                        task_store, store)
+                    if note:
+                        if emitter is None:
+                            console.print(f"[magenta]{note}[/]")
+                        else:
+                            emitter.event("SKILL_DISTILLED", {"note": note})
             except Exception:
                 pass
         return result
     except KeyboardInterrupt:
+        # 2026-09-24:Ctrl+C 终态从 failed 收敛为 cancelled(与 GUI 停止键/协作取消同语义;
+        # 此前"用户主动停"被记成失败,历史页状态误导)
         if emitter is None:
-            console.print("\n[bold red]已中断(M2 起有 Checkpoint 恢复,见说明书路线图)[/]")
+            console.print("\n[bold red]已取消(Checkpoint 保留,可 --resume 继续)[/]")
         else:
-            emitter.error("interrupted")
-        await store.finish_run(run_id, "failed", "interrupted")
+            emitter.error("cancelled")
+        await store.finish_run(run_id, "cancelled", "interrupted")
         return None
     finally:
         if emitter is None:
@@ -282,11 +297,19 @@ async def run_repl(loop: AgentLoop, store, max_steps: int) -> None:
             continue
         if prompt.startswith("/skill"):
             # M4:skill list / skill accept runN(人工确认才转正)
+            # v0.4(2026-09-24):簇挖掘候选形态——/skill cand 列候选、accept/reject <候选id>
+            # (旧 runN 形态兼容保留)
+            from otter.skill_learning import list_candidates, review
             from otter.skills import accept_candidate, list_skills
 
             parts = prompt.split()
-            if len(parts) >= 3 and parts[1] == "accept" and parts[2].startswith("run"):
-                console.print(accept_candidate(int(parts[2][3:])))
+            if len(parts) >= 2 and parts[1] == "cand":
+                console.print(list_candidates())
+            elif len(parts) >= 3 and parts[1] == "accept":
+                console.print(accept_candidate(int(parts[2][3:]))
+                              if parts[2].startswith("run") else review(parts[2], accept=True))
+            elif len(parts) >= 3 and parts[1] == "reject":
+                console.print(review(parts[2], accept=False))
             else:
                 console.print(list_skills())
             continue
@@ -318,9 +341,17 @@ async def run_repl(loop: AgentLoop, store, max_steps: int) -> None:
                 continue
             console.print(f"\n[dim]{result.summary()}[/]")
             if result.ok:
-                from otter.plans import load_plan, plan_is_valid
+                from otter.plans import plan_is_valid
 
-                if not plan_is_valid(result.final_text):
+                # v0.3(2026-09-24):优先 Task 契约采纳——查会话最新 PENDING 任务,
+                # 采纳=plan_accept(PENDING→ACTIVE;执行 Run 的 system 自动注入活动任务快照);
+                # 无 PENDING 任务时退回 md 计划流程(兼容弱模型不调工具的老路径)
+                task_store = getattr(loop.registry, "task_store", None)
+                pending = (await task_store.latest_pending_for_conversation("cli")
+                           if task_store is not None else None)
+                if pending is not None:
+                    console.print(f"[bold cyan]📋 计划任务:{pending.title}({len(pending.steps)} 步)[/]")
+                elif not plan_is_valid(result.final_text):
                     console.print("[yellow]⚠ 计划未包含'## 步骤'小节,格式不完整;仍可执行[/]")
                 console.print("[bold cyan]采纳此计划并执行? [Y/n][/] ", end="")
                 try:
@@ -331,14 +362,21 @@ async def run_repl(loop: AgentLoop, store, max_steps: int) -> None:
                     answer = ""
                 if answer in ("", "y", "yes"):
                     console.print("[green]→ 按计划执行[/]\n")
+                    if pending is not None and task_store is not None:
+                        await task_store.plan_accept(pending.id)  # v0.3:PENDING→ACTIVE
                     exec_result = await _dispatch(loop, store, history, state, task, max_steps,
-                                                  MODE_NORMAL, plan_context=result.final_text)
+                                                  MODE_NORMAL,
+                                                  plan_context="" if pending is not None else result.final_text)
                     if exec_result:
                         console.print(f"\n[dim]{exec_result.summary()}[/]")
                         history.append(Message(role="user", content=task))
                         history.append(Message(role="assistant", content=exec_result.final_text))
                 else:
-                    console.print("[dim]计划已存盘(.otter/plans/),仅保留不执行;可用 /plans 查看[/]")
+                    if pending is not None and task_store is not None:
+                        await task_store.plan_reject(pending.id)  # v0.3:拒绝=PENDING→CANCELLED
+                        console.print("[dim]计划任务已取消;可用 /task 查看[/]")
+                    else:
+                        console.print("[dim]计划已存盘(.otter/plans/),仅保留不执行;可用 /plans 查看[/]")
             continue
         if prompt == "/plans":
             from otter.plans import list_plans
@@ -348,6 +386,126 @@ async def run_repl(loop: AgentLoop, store, max_steps: int) -> None:
                 console.print("[dim](无计划)[/]")
             for r in rows:
                 console.print(f"[dim]{r['file']} · {r['task'][:50]}[/]")
+            continue
+        if prompt.startswith("/task"):
+            # v0.3(2026-09-24):任务管理面——/task 列表(全部会话)、/task acc <前缀> 采纳
+            # PENDING 计划(ACTIVE 后模型自动看到)、/task rej <前缀> 拒绝
+            task_store = getattr(loop.registry, "task_store", None)
+            if task_store is None:
+                console.print("[yellow]任务系统未装配[/]")
+                continue
+            parts = prompt.split()
+            if len(parts) >= 3 and parts[1] in ("acc", "rej"):
+                try:
+                    t = await task_store.resolve(parts[2])
+                except ValueError as exc:
+                    console.print(f"[yellow]{exc}[/]")
+                    continue
+                if t is None:
+                    console.print("[yellow]任务不存在(可用前缀)[/]")
+                    continue
+                try:
+                    t = await (task_store.plan_accept(t.id) if parts[1] == "acc"
+                               else task_store.plan_reject(t.id))
+                    console.print(f"[green]{t.progress_summary}[/]")
+                except ValueError as exc:
+                    console.print(f"[yellow]{exc}[/]")
+                continue
+            tasks = await task_store.list(limit=20)
+            if not tasks:
+                console.print("[dim](无任务;PLAN 模式产计划或让模型 task_create)[/]")
+            for t in tasks:
+                console.print(f"[dim]{t.id[:8]} · {t.progress_summary} · "
+                              f"{len(t.run_ids)} 次运行[/]")
+            continue
+        if prompt.startswith("/permissions"):
+            # 2026-09-24 补齐(vesta 对齐):权限规则管理面——查看/删除固化规则;
+            # 此前规则只能经审批"[3]总是允许"写入,写错了只能手编 ~/.otter/permissions.json
+            # 用 loop 上挂的同一 engine 对象:删除对当前会话立即生效
+            # (若 --yes 模式无审批门,则临时构造仅读同一规则文件)
+            engine = loop.approval_gate.engine if loop.approval_gate is not None else None
+            if engine is None:
+                from otter.assembly import build_gate
+
+                engine = build_gate().engine
+            parts = prompt.split()
+            if len(parts) >= 3 and parts[1] == "del":
+                removed = engine.remove(int(parts[2]) - 1)
+                console.print(f"[green]已删除:{removed.tool} {removed.pattern or ''} {removed.verdict}[/]"
+                              if removed else "[yellow]编号越界[/]")
+            else:
+                rules = engine.list_rules()
+                if not rules:
+                    console.print("[dim](无固化规则;审批时选[3]/[4]可写入)[/]")
+                for i, r in enumerate(rules, 1):
+                    console.print(f"[dim]{i}. {r.tool} {r.pattern or ''} → {r.verdict}[/]")
+            continue
+        if prompt == "/mcp":
+            # v0.5(2026-09-24):MCP 状态面——运行中经 manager 快照,未连接则按配置列
+            from otter.mcp_client import _active_manager, MCPConfigurationStore
+
+            servers = MCPConfigurationStore().load().servers
+            if not servers:
+                console.print("[dim](无 MCP 配置;~/.otter/mcp.json 或 /ext 导入)[/]")
+                continue
+            states = {s.name: s for s in (_active_manager.statuses()
+                                          if _active_manager else [])}
+            for s in servers:
+                st = states.get(s.name)
+                state = st.state if st else ("禁用" if not s.enabled else "未连接(重启后生效)")
+                tools = f" · {len(st.tool_names)} 工具" if st and st.tool_names else ""
+                err = f" · ⚠️ {st.error[:60]}" if st and st.error else ""
+                console.print(f"[dim]{s.name} · {state}{tools}{err}[/]")
+            continue
+        if prompt.startswith("/ext"):
+            # v0.5(2026-09-24):扩展两阶段导入——preview 纯解析不触网;apply 确认执行
+            # (GitHub owner/repo | 本地路径 | MCP JSON;/ext apply 同参数)
+            from otter.extensions import ExtensionImportError, apply_import_plan, parse_import_plan
+
+            parts = prompt.split(maxsplit=2)
+            if len(parts) < 3 or parts[1] not in ("preview", "apply"):
+                console.print("[yellow]用法:/ext preview <github owner/repo|本地路径|MCP JSON> · /ext apply <同参数> · /mcp 看状态[/]")
+                continue
+            try:
+                plan = parse_import_plan(parts[2])
+            except ExtensionImportError as exc:
+                console.print(f"[yellow]{exc}[/]")
+                continue
+            info = plan.public_dict()
+            if parts[1] == "preview":
+                for item in info["items"]:
+                    console.print(f"[cyan]· [{item['kind']}] {item.get('name', '')} {item['source'] if 'source' in item else ''}[/]")
+                    console.print(f"[dim]   {item['summary']}[/]")
+                for w in info["warnings"]:
+                    console.print(f"[yellow]⚠ {w}[/]")
+                if info["requires_download"]:
+                    console.print("[dim]apply 时才会联网下载/读盘;不会执行仓库中的代码[/]")
+                continue
+            try:
+                result = asyncio.run(apply_import_plan(plan))
+            except ExtensionImportError as exc:
+                console.print(f"[yellow]导入失败:{exc}[/]")
+                continue
+            for s in result["skills"]:
+                console.print(f"[green]已装技能 {s['name']}({s['source']})[/]")
+            for n in result["mcp_servers"]:
+                console.print(f"[green]已写入 MCP {n}(重启后生效)[/]")
+            continue
+        if prompt.startswith("/usage"):
+            # v0.3(2026-09-24):Run 账本——主模型/压缩/反思分账(vesta Trace 同口径);
+            # /usage 缺省=最近一次 Run,/usage <id> 指定
+            from otter.trace import render_ledger, run_usage_ledger
+
+            parts = prompt.split()
+            try:
+                rid = int(parts[1]) if len(parts) > 1 else (await store.latest_run_id())
+            except (ValueError, TypeError):
+                console.print("[yellow]用法:/usage [run_id][/]")
+                continue
+            if rid is None:
+                console.print("[dim](还没有 Run)[/]")
+                continue
+            console.print(f"[dim]Run #{rid}[/]\n" + render_ledger(await run_usage_ledger(store, rid)))
             continue
         if prompt == "/context":
             tail_est = estimate_messages_tokens(history[state.covered:]) if history else 0

@@ -15,6 +15,7 @@ max_steps 用尽时进入"收尾专用步":零工具表发最后一次请求,从
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections import Counter
@@ -29,8 +30,11 @@ from otter.prompts import (  # 2026-09-23 提示词套件重构:全部话术单�
     BASE_SYSTEM,
     EDIT_HINT_DIFF,
     EDIT_HINT_WHOLE,
+    EMPTY_FINAL_RETRY_MESSAGE,
     MAX_STEPS_FINAL_MESSAGE,
+    TEXTUAL_TOOL_CALL_RETRY_MESSAGE,
     approved_plan_note,
+    budget_closing,
     budget_finalizing,
     budget_hard_report,
     budget_warning,
@@ -44,6 +48,7 @@ STOP_MAX_STEPS = "max_steps"       # 正常收尾:步数用尽,经收尾专用�
 STOP_REPEATED = "repeated_tool"    # 兜底:同签名工具调用累计 3 次,防弱模型原地打转
 STOP_ERROR = "model_error"         # 兜底:模型调用异常
 STOP_BUDGET = "run_budget_exceeded"  # 预算:Run 级费用硬停(2026-09-22 补装,防 45 万 token 级事故)
+STOP_CANCELLED = "cancelled"        # 取消:用户主动停止(2026-09-24 补,协作式检查点优雅停)
 
 MODE_NORMAL = "normal"
 MODE_PLAN = "plan"
@@ -53,9 +58,27 @@ MODE_PLAN = "plan"
 # 修正(2026-09-24):skill_read 也是纯读(读技能文件),漏进白名单导致 PLAN 模式
 # 反而用不上技能——真机暴露:模型调 skill_read 被只读校验拦截(注入了却读不了)
 # 2026-09-24 身份通用化:web_fetch(只读网页)/calculate(纯计算)同为只读,一并放行
+# 2026-09-24 补:web_search 同为只读(查资料是 Plan 阶段高频动作)
+# v0.3:task 工具进 Plan 白名单(vesta 同)——Plan 模式的产物就是 PENDING 任务;
+# 计划内容(goal/steps/facts)可改,状态推进由工具层 PLAN 校验拦下
 PLAN_TOOLS = {"read_file", "grep", "glob", "repo_map", "tool_search", "skill_read",
-              "web_fetch", "calculate"}
+              "web_fetch", "calculate", "web_search",
+              "task_create", "task_update", "task_get", "task_list"}
 WRITE_TOOLS = {"write_file", "edit_file"}            # 成功后触发 git 自动提交
+# v0.3(2026-09-24)预算第四段 Closing:工具面收窄到交付类(vesta Closing 语义的结构化实现)
+CLOSING_TOOLS = {"write_file", "edit_file", "make_pdf", "artifact_publish",
+                 "task_update", "task_get", "tool_search"}
+
+
+def looks_like_textual_tool_call(content: str | None) -> bool:
+    """识别被模型错误输出为普通文本的工具协议标记(移植 vesta runtime_helpers;
+    DeepSeek 系弱模型高发:把 <tool_calls>/DSML 当正文吐出,系统零执行)。"""
+    if not content:
+        return False
+    lowered = content.lower()
+    return any(marker in lowered for marker in (
+        "<tool_calls", "<｜｜dsml｜｜tool_calls", "<｜｜dsml｜｜invoke",
+    ))
 
 # 2026-09-23 提示词套件重构:BASE_SYSTEM 移至 otter/prompts.py(五段式重写,
 # 融合决策示例/Scaling/正反例/反幻觉技术);此处仅引用,单一来源调词
@@ -128,10 +151,12 @@ class AgentLoop:
         memory_bundle=None,   # M3:(store, core, ctx) 三元组;None=记忆关闭
         edit_format: str = "auto",  # M3:whole/diff/auto(按模型自适应弱模型整文件替换)
         activated_tools: set | None = None,  # M3:与 ToolSearchTool 共享的激活名单(同一对象!)
-        run_budget: int = 300_000,  # Run 级费用预算(计费 token;0=禁用),2026-09-22 补装
+        run_budget: int = 3_000_000,  # Run 级费用预算(计费 token;0=禁用);2026-09-24 默认扩至 3M(300k 频繁硬停)
         base_system: str | None = None,  # 2026-09-23 套件化:子代理等可覆盖系统提示(修 SUBAGENT_SYSTEM 死代码)
+        reflection_adapter=None,  # v0.3:反思用便宜模型(None=复用主 adapter;Trace 分账独立行)
     ) -> None:
         self.adapter = adapter
+        self.reflection_adapter = reflection_adapter  # v0.3 多模型角色;None=主模型
         self.registry = registry
         self.store = store
         self.on_event = on_event
@@ -161,6 +186,13 @@ class AgentLoop:
         if edit_format == "auto":
             edit_format = "whole" if any(k in model_name for k in ("deepseek", "qwen", "glm")) else "diff"
         self.edit_format = edit_format
+        self._cancel_event: asyncio.Event | None = None  # 2026-09-24:每 Run 在 run() 内重建
+
+    def request_cancel(self) -> None:
+        """请求优雅取消(2026-09-24):约定在事件循环线程内调用(GUI 经
+        run_coroutine_threadsafe 转入);下一个检查点(Step 开头/工具执行前)生效。"""
+        if self._cancel_event is not None:
+            self._cancel_event.set()
 
     @property
     def _edit_hint(self) -> str:
@@ -181,7 +213,21 @@ class AgentLoop:
         defs = self.registry.definitions(active_extra=self._activated_tools)
         if mode == MODE_PLAN:
             defs = [d for d in defs if d.name in PLAN_TOOLS]
+        # v0.3(2026-09-24)预算 Closing 段:工具面收窄到交付类(vesta"仅保留交付工具");
+        # 结构性限制——调查类工具直接从 schema 消失,弱模型想调也看不见
+        if getattr(self, "_budget_closing", False):
+            defs = [d for d in defs if d.name in CLOSING_TOOLS or d.name.startswith("task_")]
         return defs
+
+    async def _cancel_requested(self, run_id: int, step: int, user_message_text: str) -> bool:
+        """2026-09-24 协作取消检查点:命中则发事件 + 落统一终态 cancelled,返回 True。
+        调用处(Step 开头/工具执行前)据此构造 AgentResult 返回。"""
+        if self._cancel_event is None or not self._cancel_event.is_set():
+            return False
+        await self._emit(run_id, "RUN_CANCELLED", {"step": step})
+        await self.store.save_checkpoint(run_id, user_message_text, "FINISHED")
+        await self.store.finish_run(run_id, "cancelled", STOP_CANCELLED)
+        return True
 
     async def _maybe_compress(self, messages: list[Message], state: SummaryState) -> None:
         """第③拍:估算超线则压缩最旧前缀进摘要(原始历史不动,只更新水位)。"""
@@ -228,6 +274,9 @@ class AgentLoop:
         if getattr(self, "_skills_brief", ""):
             # 2026-09-24 Skill 注入:转正技能 cue(name+description;正文经 skill_read 按需取)
             parts.append(self._skills_brief)
+        if getattr(self, "_task_context_text", ""):
+            # v0.3(2026-09-24):活动任务快照注入(预算受控,见 task.render_task_context)
+            parts.append(self._task_context_text)
         if self.memory_bundle:
             _, core, _ = self.memory_bundle
             core_text = core.render()
@@ -255,7 +304,13 @@ class AgentLoop:
         on_event: Callable[[str, dict], Awaitable[None]] | None = None,
         conversation_id: int | None = None,  # v5(2026-09-22):GUI 多会话落库用;REPL 不传=行为不变
         plan_context: str = "",  # Plan Mode v2(2026-09-23):采纳的计划注入 system(执行模式跑)
+        cancel_event: asyncio.Event | None = None,  # 2026-09-24:协作式取消(GUI 停止键/超时器注入)
     ) -> AgentResult:
+        # 2026-09-24 运行中取消(vesta 对齐):此前只能硬抛(GUI fut.cancel / REPL Ctrl+C
+        # 的 KeyboardInterrupt),在途工具被硬切、终态语义混乱(failed/interrupted 混用);
+        # 现改为:检查点(每 Step 开头 + 每个工具执行前)看到 event 即优雅收尾,
+        # 落统一终态 cancelled;硬取消保留为兜底(GUI fut.cancel 兜底路径落库同样收敛为 cancelled)
+        self._cancel_event = cancel_event if cancel_event is not None else asyncio.Event()
         messages = list(history) + [user_message]
         self._run_on_event = on_event  # run 级渲染回调(见 _emit 修正说明)
         # Plan Mode v2:PLAN 模式注入结构化计划指令;plan_context 供采纳后执行跑
@@ -269,6 +324,15 @@ class AgentLoop:
             self._skills_brief = render_skills_brief(load_skills_brief())
         except Exception:
             self._skills_brief = ""
+        # v0.3(2026-09-24):Task 上下文注入——装配层挂在 registry 上的 task_ctx/store;
+        # loop 统一写入会话/运行/模式(REPL 无会话记 "cli"),工具侧自动可见,
+        # GUI/REPL 无需各自维护;活动任务快照每 Step 重取(见 step 循环)
+        self._task_context_text = ""
+        t_ctx = getattr(self.registry, "task_ctx", None)
+        if t_ctx is not None:
+            t_ctx["conversation_id"] = str(conversation_id) if conversation_id is not None else "cli"
+            t_ctx["run_id"] = run_id
+            t_ctx["mode"] = mode
         seq = len(history)
         await self.store.append_message(user_message, seq, run_id, conversation_id)
         seq += 1
@@ -305,14 +369,16 @@ class AgentLoop:
 
         model_calls = 0
         total_tool_calls = 0
+        empty_retries = textual_retries = 0  # v0.3:空响应/协议文本重试计数(各限 1 次)
         signature_counts: Counter[tuple[str, str]] = Counter()
 
-        # ── Run 级费用预算三段(2026-09-22 补装)──
-        # 口径:真实 usage 的 input+output 合计(事后问责口径);三段一次性熔断 flag。
+        # ── Run 级费用预算四段(2026-09-22 补装三段;v0.3 2026-09-24 加 Closing 第四段)──
+        # 口径:真实 usage 的 input+output 合计(事后问责口径);分段一次性熔断 flag。
         # 修正(2026-09-23 套件化):local 标志改名 warned/finalizing——原变量名
         # budget_finalizing 与 prompts.py 导入的同名函数冲突(bool 不可调用,
         # 与 2026-09-22 state 解包覆盖同类阴影 bug,此处在脑内静态检查时抓住)
         self._budget_hint = ""
+        self._budget_closing = False  # v0.3:Closing 段标志(工具面收窄,见 _definitions_for)
         warned = finalizing = False
 
         def _used() -> int:
@@ -321,7 +387,9 @@ class AgentLoop:
         def _check_budget(step_now: int) -> tuple[str, bool] | None:
             """返回 (段位, 是否补发warning);'hard' 表示应立即终止。
             跨段(如一次调用从 60% 以下直接跳到 85%+)时先补发 warning——
-            沿"预警补发"先例(2026-09-22,离线测试暴露 elif 跳段)。"""
+            沿"预警补发"先例(2026-09-22,离线测试暴露 elif 跳段)。
+            v0.3(2026-09-24):85% finalizing 后新增 92% closing 段(vesta Closing)——
+            收窄工具面到交付类,先把已有结果落盘/交付再收口。"""
             nonlocal warned, finalizing
             if not self.run_budget:
                 return None
@@ -332,6 +400,10 @@ class AgentLoop:
                     warned = True
                     also_warning = True
                 return ("hard", also_warning)
+            if u >= int(hard * 0.92) and not self._budget_closing:
+                self._budget_closing = True
+                self._budget_hint = budget_closing(u, hard)  # 覆盖 finalizing 话术(升级)
+                return ("closing", False)
             if u >= int(hard * 0.85) and not finalizing:
                 finalizing = True
                 if not warned:
@@ -348,6 +420,25 @@ class AgentLoop:
 
 
         for step in range(1, max_steps + 1):
+            # v0.3(2026-09-24):活动任务快照每 Step 重取——任务状态随时在变(工具轮里
+            # 可能刚 task_update 过),下一条请求必须看到最新进度(vesta 同为每请求注入);
+            # 失败静默(任务系统不应阻断主流程)
+            self._task_context_text = ""
+            _t_store = getattr(self.registry, "task_store", None)
+            _t_ctx = getattr(self.registry, "task_ctx", None)
+            if _t_store is not None and _t_ctx:
+                try:
+                    from otter.task import render_task_context
+
+                    _active = await _t_store.active_for_conversation(_t_ctx.get("conversation_id", "cli"))
+                    if _active is not None:
+                        self._task_context_text = render_task_context(_active)
+                except Exception:
+                    self._task_context_text = ""
+            # 2026-09-24 协作取消检查点①:Step 开头(调模型前)——避免取消后还烧一次模型调用
+            if await self._cancel_requested(run_id, step, user_message.content or ""):
+                return AgentResult(False, "用户取消了本次运行。", STOP_CANCELLED, step,
+                                   model_calls, total_tool_calls, usage or ModelUsage())
             # M2 Checkpoint:每 Step 调模型前落档(MODEL_REQUEST 阶段)——中断恢复的边界
             await self.store.save_checkpoint(
                 run_id, user_message.content or "", "MODEL_REQUEST"
@@ -360,9 +451,14 @@ class AgentLoop:
             await self._maybe_compress(messages, state)
             _acc(getattr(self, "_last_compress_usage", None))
             if state.compressions > _compressions_before:
+                _cu = getattr(self, "_last_compress_usage", None)
                 await self._emit(
                     run_id, "CONTEXT_COMPACTED",
-                    {"covered": state.covered, "compressions": state.compressions},
+                    {"covered": state.covered, "compressions": state.compressions,
+                     # v0.3(2026-09-24):压缩调用的 usage 进事件——Trace 分账
+                     # "summary"行数据源(vesta:压缩不免费,账本须可见)
+                     "usage_in": _cu.input_tokens if _cu else None,
+                     "usage_out": _cu.output_tokens if _cu else None},
                 )
 
             # ② 请求组装(system+摘要+尾部) + ④ 流式调模型
@@ -403,7 +499,10 @@ class AgentLoop:
                 b_stage, b_also_warning = budget_state
                 if b_also_warning:
                     await self._emit(run_id, "RUN_BUDGET_WARNING", {"used": _used(), "budget": self.run_budget})
-                if b_stage == "finalizing":
+                if b_stage == "closing":
+                    # v0.3(2026-09-24):Closing 第四段——工具面已收窄(结构限制),先交付再收口
+                    await self._emit(run_id, "RUN_BUDGET_CLOSING", {"used": _used(), "budget": self.run_budget})
+                elif b_stage == "finalizing":
                     await self._emit(run_id, "RUN_BUDGET_FINALIZING", {"used": _used(), "budget": self.run_budget})
                 elif b_stage == "hard":
                     await self._emit(run_id, "RUN_BUDGET_EXCEEDED", {"used": _used(), "budget": self.run_budget})
@@ -414,16 +513,60 @@ class AgentLoop:
                                        total_tool_calls, usage or ModelUsage())
 
             # ⑤ 回复分岔
+            # v0.3(2026-09-24)弱模型兜底重试(移植 vesta 话术族):空响应/协议文本各限
+            # 重试 1 次——注入 user 重试消息继续下一 Step;第二次仍异常则按原语义走
+            # FINAL(空响应给出占位文本),不死循环
             if not resp.tool_calls:
+                _content = (resp.content or "").strip()
+                if not _content and empty_retries < 1:
+                    empty_retries += 1
+                    retry_msg = Message(role="user", content=EMPTY_FINAL_RETRY_MESSAGE)
+                    messages.append(retry_msg)
+                    await self.store.append_message(retry_msg, seq, run_id, conversation_id)
+                    seq += 1
+                    await self._emit(run_id, "MODEL_EMPTY_RETRY", {"step": step})
+                    continue
+                if looks_like_textual_tool_call(resp.content) and textual_retries < 1:
+                    textual_retries += 1
+                    retry_msg = Message(role="user", content=TEXTUAL_TOOL_CALL_RETRY_MESSAGE)
+                    messages.append(retry_msg)
+                    await self.store.append_message(retry_msg, seq, run_id, conversation_id)
+                    seq += 1
+                    await self._emit(run_id, "MODEL_TEXTUAL_RETRY", {"step": step})
+                    continue
                 # Plan Mode v2:计划产物轻校验 + 落盘(不改写终稿)
+                # v0.3(2026-09-24)升级:优先 Task 契约——会话存在有效 PENDING 任务即计划
+                # 成立(vesta 语义:goal+steps 非空且无伪造进度);无 Task 时退回 md 计划
+                # 校验(兼容弱模型不调工具直接输出文本计划的老路径)
                 if mode == MODE_PLAN:
                     from otter.plans import plan_is_valid, save_plan
 
-                    valid = plan_is_valid(resp.content or "")
-                    plan_path = save_plan(user_message.content or "", resp.content or "") if valid else None
+                    valid = False
+                    plan_path = None
+                    pending_id = ""
+                    _t_store = getattr(self.registry, "task_store", None)
+                    _t_ctx = getattr(self.registry, "task_ctx", None)
+                    if _t_store is not None and _t_ctx:
+                        try:
+                            from otter.task import pending_plan_is_valid
+
+                            pending = await _t_store.latest_pending_for_conversation(
+                                _t_ctx.get("conversation_id", "cli"))
+                            if pending is not None and await pending_plan_is_valid(
+                                _t_store, _t_ctx.get("conversation_id", "cli"), pending.id
+                            ):
+                                valid = True
+                                pending_id = pending.id
+                        except Exception:
+                            pass
+                    if not valid and plan_is_valid(resp.content or ""):
+                        valid = True
+                    if valid and not pending_id:
+                        plan_path = save_plan(user_message.content or "", resp.content or "")
                     await self._emit(run_id, "PLAN_RESULT", {
                         "valid": valid,
                         "plan_file": str(plan_path) if plan_path else "",
+                        "task_id": pending_id,
                     })
                 # M3 Run 后反思:确定性门控先过滤,单动作+乐观锁,失败完全隔离
                 reflect_note = ""
@@ -435,11 +578,18 @@ class AgentLoop:
                     mem_ctx["reads"] = {}  # 每 Run 重置读取记录(乐观锁的"本 Run"语义)
                     mem_ctx["run_id"] = run_id
                     if reflection_should_run(user_message.content or "", recalled):
-                        reflect_note = await run_reflection(
-                            self.adapter, user_message.content or "", resp.content or "",
+                        # v0.3(2026-09-24):反思返回 (note, usage)——usage 进事件供分账;
+                        # 反思走 reflection_adapter(便宜模型角色,None=主模型)
+                        reflect_note, reflect_usage = await run_reflection(
+                            self.reflection_adapter or self.adapter,
+                            user_message.content or "", resp.content or "",
                             mem_store, core, mem_ctx,
                         )
-                        await self._emit(run_id, "MEMORY_REFLECTION", {"result": reflect_note})
+                        await self._emit(run_id, "MEMORY_REFLECTION", {
+                            "result": reflect_note,
+                            "usage_in": reflect_usage[0] if reflect_usage else None,
+                            "usage_out": reflect_usage[1] if reflect_usage else None,
+                        })
                 await self.store.save_checkpoint(run_id, user_message.content or "", "FINISHED")
                 await self.store.finish_run(run_id, "completed", STOP_FINAL)
                 final = resp.content or ""
@@ -455,6 +605,11 @@ class AgentLoop:
                 ],
             )
             for tc in resp.tool_calls:
+                # 2026-09-24 协作取消检查点②:每个工具执行前——长 bash/写盘前响应停止,
+                # 已完成的工具结果保留在历史里(下一条消息序列合法,可正常续跑)
+                if await self._cancel_requested(run_id, step, user_message.content or ""):
+                    return AgentResult(False, "用户取消了本次运行。", STOP_CANCELLED, step,
+                                       model_calls, total_tool_calls, usage or ModelUsage())
                 total_tool_calls += 1
                 await self._emit(run_id, "TOOL_STARTED", {"step": step, "name": tc.name, "arguments": tc.arguments})
                 tool = self.registry.get(tc.name)
@@ -625,6 +780,13 @@ class AgentLoop:
             return AgentResult(False, f"收尾调用失败:{exc}", STOP_ERROR, max_steps, model_calls, total_tool_calls, usage or ModelUsage())
         model_calls += 1
         _acc(resp.usage)
+        # v0.3(2026-09-24):收尾步也发 MODEL_COMPLETED 事件(带 finalizing 标记)——
+        # 此前收尾调用零事件,Trace 分账漏记最后一次模型调用
+        await self._emit(run_id, "MODEL_COMPLETED", {
+            "step": max_steps, "finalizing": True,
+            "content_chars": len(resp.content or ""), "tool_calls": [],
+            "usage_in": resp.usage.input_tokens, "usage_out": resp.usage.output_tokens,
+        })
         final_msg = Message(role="assistant", content=resp.content or "")
         messages.append(final_msg)
         await self.store.append_message(final_msg, seq, run_id, conversation_id)

@@ -54,11 +54,25 @@ def full_registry(store: Store, activated: set[str] | None = None,
     registry.register(_mark_deferred(SkillReadTool()))
     # 2026-09-24 身份通用化配套:通用小工具包——current_time 常驻(高频刚需,
     # schema 极短);web_fetch/calculate 低频走 deferred(tool_search 激活)
-    from otter.tools.general import CalculateTool, CurrentTimeTool, WebFetchTool
+    from otter.tools.general import CalculateTool, CurrentTimeTool, WebFetchTool, WebSearchTool
 
     registry.register(CurrentTimeTool())
     registry.register(_mark_deferred(WebFetchTool()))
     registry.register(_mark_deferred(CalculateTool()))
+    # 2026-09-24 补(vesta 对齐):web_search 走 DuckDuckGo Lite 免 key 线路,deferred 注册
+    # (与 web_fetch 同为低频网络工具;搜索+抓取两件套配齐"查实时信息"能力面)
+    registry.register(_mark_deferred(WebSearchTool()))
+    # v0.3(2026-09-24):Task 系统(vesta task/ 移植)——4 工具常驻(vesta 同为主工具面);
+    # store/ctx 挂在 registry 上由 loop 统一写入(conversation_id/run_id/mode),
+    # GUI/REPL 装配方无需各自维护
+    from otter.task import FileTaskStore, build_task_tools
+
+    task_store = FileTaskStore()
+    task_ctx: dict = {}
+    for t in build_task_tools(task_store, task_ctx):
+        registry.register(t)
+    registry.task_store = task_store  # loop 每 Step 取活动任务快照用
+    registry.task_ctx = task_ctx      # loop.run 开头注入会话/运行上下文用
     # Replan 领域工具包(说明书 M4 示范):get_schedule/simulate/commit
     import os
 
