@@ -1,16 +1,15 @@
 """MCP 客户端完整版(v0.5,2026-09-24)——域模型/状态机/失败回滚/mcp_status。
 
-来源:上游 backend/app/mcp/(models/config/manager/status_tool)移植适配
-(上游-copy 策略);底层传输沿用官方 mcp SDK(M4 起已用):
+底层传输沿用官方 mcp SDK(M4 起已用):
 - MCPServerConfig/MCPSettings:pydantic 域模型(name 约束/重名拒绝/超时/enabled);
 - MCPConfigurationStore:配置统一校验+原子写,add/set_enabled/delete 供
-  /mcp 命令与 Extensions 导入共用(上游 同款);
+  /mcp 命令与 Extensions 导入共用;
 - MCPClientManager:状态机 stopped→starting→running/failed;启动失败回滚
   本 server 已注册的工具(不留半连接半注册);单 server 失败不拖累其他(隔离取向);
-- mcp__<server>__<tool> 命名空间(上游 同款,防跨 server 工具名冲突);
+- mcp__<server>__<tool> 命名空间(防跨 server 工具名冲突);
 - mcp_status 常驻只读工具:不启动 server 即可看配置与状态快照。
 
-与 上游 的差异(刻意):otter 无 per-server SandboxConfig/ToolPermission 域
+与 的差异(刻意):otter 无 per-server SandboxConfig/ToolPermission 域
 (权限统一走 permissions.py 默认表,MCP 工具未命中默认表=ASK 弹审批,fail-closed);
 env 展开沿用官方 SDK 的默认环境继承。
 """
@@ -34,7 +33,7 @@ _SERVER_NAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 _INVALID_TOOL_NAME = re.compile(r"[^a-zA-Z0-9_]+")
 
 
-# ── 域模型(移植 上游 mcp/models.py) ───────────────────────────────
+# ── 域模型( ───────────────────────────────
 
 class MCPServerState:
     STOPPED = "stopped"
@@ -44,7 +43,7 @@ class MCPServerState:
 
 
 class MCPServerConfig(BaseModel):
-    """一个 stdio MCP Server 的静态配置(上游 同款校验)。"""
+    """一个 stdio MCP Server 的静态配置(名称/超时等域校验)。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -91,14 +90,14 @@ class MCPServerStatus(BaseModel):
 
 
 def mcp_tool_name(server_name: str, remote_name: str) -> str:
-    """模型可见命名空间(上游 同款):mcp__<server>__<tool>,非法字符折为 _。"""
+    """模型可见命名空间:mcp__<server>__<tool>,非法字符折为 _。"""
     normalized = _INVALID_TOOL_NAME.sub("_", remote_name).strip("_")
     if not normalized:
         raise ValueError(f"MCP Server '{server_name}' 返回了无法注册的工具名 {remote_name!r}")
     return f"mcp__{server_name}__{normalized}"
 
 
-# ── 配置存储(移植 上游 mcp/config.py 的 MCPConfigurationStore) ────
+# ── 配置存储( 的 MCPConfigurationStore) ────
 
 def _normalize_legacy(raw: dict) -> dict:
     """旧 dict 形态 {"servers": {"name": {...}}} → 列表形态(向后兼容 M4 配置)。"""
@@ -135,7 +134,7 @@ class MCPConfigurationStore:
                 temp.unlink()
 
     def add(self, server: MCPServerConfig) -> MCPSettings:
-        """添加 server;重名拒绝(上游 语义)。"""
+        """添加 server;重名拒绝(标准语义)。"""
         current = self.load()
         if any(s.name == server.name for s in current.servers):
             raise ValueError(f"MCP Server '{server.name}' 已存在")
@@ -195,7 +194,7 @@ class McpTool(Tool):
 
 
 class McpStatusTool(Tool):
-    """mcp_status:只读快照,不启动 server(移植 上游 status_tool 语义)。"""
+    """mcp_status:只读快照,不启动 server( 语义)。"""
 
     name = "mcp_status"
     description = "查看 MCP 服务器配置与连接状态快照(只读,不启动任何 server)。"
@@ -211,7 +210,7 @@ class McpStatusTool(Tool):
             [s.model_dump(mode="json") for s in self._manager.statuses()], ensure_ascii=False)
 
 
-# ── 生命周期管理(移植 上游 mcp/manager.py) ────────────────────────
+# ── 生命周期管理( ────────────────────────
 
 class _ServerHandle:
     """一个 server 的守护任务句柄:ready/stop 事件 + 注册名单 + 错误。"""
@@ -290,7 +289,7 @@ class MCPClientManager:
             except asyncio.TimeoutError:
                 pass  # 超时按 failed 处理(handle.error 为空 → 标记超时)
             if handle.error is not None or not handle.registered:
-                for n in reversed(handle.registered):  # 回滚半注册(上游 同款)
+                for n in reversed(handle.registered):  # 回滚半注册
                     registry.unregister(n)
                 handle.registered.clear()
                 err = handle.error or "启动超时或零工具"

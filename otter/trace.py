@@ -1,10 +1,9 @@
 """Trace 分账(v0.3,2026-09-24)——从 durable 事件流构建 Run 级 Usage 账本。
 
-来源:上游 backend/app/trace/usage.py(summarize_run_usage)移植适配
-(上游-copy 策略:聚合口径原样,数据面按 otter 事件表改写):
-- 上游 用独立 agent_events 表 + 富事件模型;otter 已有通用 events 表
+:
+- 用独立 agent_events 表 + 富事件模型;otter 已有通用 events 表
   (loop.append_event 落 JSON payload),故不另建表,聚合读 load_run_events;
-- 三行账本口径同 上游:main_agent(MODEL_COMPLETED,含收尾步)/
+- 三行账本口径同 :main_agent(MODEL_COMPLETED,含收尾步)/
   context_summary(CONTEXT_COMPACTED,压缩调用"不免费")/
   memory_reflection(MEMORY_REFLECTION)+ provider_total 合计;
 - 事件里的 usage 字段自 v0.3 起写入(旧库事件无这些键 → 记 0,历史可分析)。
@@ -22,7 +21,7 @@ def _u(payload: dict[str, Any], key_in: str, key_out: str) -> tuple[int, int]:
 
 
 def summarize_run_usage(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """纯函数聚合(上游 同名函数角色;离线可测)。
+    """纯函数聚合(同名函数角色;离线可测)。
 
     events=[{type, payload, ...] 来自 store.load_run_events。
     返回账本 dict:main/summary/reflection 三行 + provider_total + 各次数。
@@ -63,7 +62,7 @@ def summarize_run_usage(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def render_ledger(ledger: dict[str, Any]) -> str:
-    """账本 → 人读文本(REPL /usage 与 GUI 复用;对齐 上游 Run Detail 呈现口径)。"""
+    """账本 → 人读文本(REPL /usage 与 GUI 复用;对齐 Run Detail 呈现口径)。"""
     def row(name: str, key: str) -> str:
         d = ledger[key]
         return f"{name}:{d['input']}in/{d['output']}out({d['calls']} 次)"

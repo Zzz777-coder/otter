@@ -59,10 +59,10 @@ def full_registry(store: Store, activated: set[str] | None = None,
     registry.register(CurrentTimeTool())
     registry.register(_mark_deferred(WebFetchTool()))
     registry.register(_mark_deferred(CalculateTool()))
-    # 2026-09-24 补(上游 对齐):web_search 走 DuckDuckGo Lite 免 key 线路,deferred 注册
+    # 2026-09-24 补:web_search 走 DuckDuckGo Lite 免 key 线路,deferred 注册
     # (与 web_fetch 同为低频网络工具;搜索+抓取两件套配齐"查实时信息"能力面)
     registry.register(_mark_deferred(WebSearchTool()))
-    # v0.3(2026-09-24):Task 系统(上游 task/ 移植)——4 工具常驻(上游 同为主工具面);
+    # v0.3(2026-09-24):Task 系统(task/ )——4 工具常驻(同为主工具面);
     # store/ctx 挂在 registry 上由 loop 统一写入(conversation_id/run_id/mode),
     # GUI/REPL 装配方无需各自维护
     from otter.task import FileTaskStore, build_task_tools

@@ -111,7 +111,7 @@ async def run_reflection(adapter, user_message: str, final_text: str,
                          store: FileMemoryStore, core: CoreMemory, ctx: dict) -> tuple[str, tuple[int, int] | None]:
     """Run 后反思(FINAL 时调用):单动作,失败只返回诊断文本,绝不影响主结果(隔离取向)。
     v0.3(2026-09-24):返回 (note, usage)——usage=(in,out) 供 Trace 分账记账
-    (此前反思烧的 token 只混进总数,账本上看不见;上游 对齐)。"""
+    (此前反思烧的 token 只混进总数,账本上看不见;对齐)。"""
     from otter.models.types import Message
 
     convo = f"[用户]{user_message[:1500]}\n[助手结论]{final_text[:1500]}"

@@ -128,8 +128,8 @@ class CalculateTool(Tool):
         return f"{expr} = {shown}"
 
 
-# ── web_search:DuckDuckGo Lite 免 key 搜索(2026-09-24 补,上游 对齐) ──
-# 方案照抄 上游 的 DuckDuckGoSearchProvider:抓 lite.duckduckgo.com/lite 的静态 HTML,
+# ── web_search:DuckDuckGo Lite 免 key 搜索(2026-09-24 补,对齐) ──
+# 方案照抄 的 DuckDuckGoSearchProvider:抓 lite.duckduckgo.com/lite 的静态 HTML,
 # HTMLParser(标准库)解析 a[rel=nofollow] 链接 + td.result-snippet 摘要,uddg 重定向清洗。
 # 刻意不走搜索 API(Tavily 要 key)也不引第三方搜索库——零新依赖、零 key。
 
@@ -198,7 +198,7 @@ def parse_lite_results(html: str, max_results: int = 5) -> list[dict]:
     for i, (title, url) in enumerate(parser.links[:max_results]):
         snippet = parser.snippets[i] if i < len(parser.snippets) else ""
         out.append({"title": title[:300], "url": url,
-                    "snippet": snippet[:500]})  # 截断口径同 上游(title 300/snippet 500)
+                    "snippet": snippet[:500]})  # 截断口径同 (title 300/snippet 500)
     return out
 
 
