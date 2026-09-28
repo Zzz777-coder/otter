@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260928c"  # 20260928c:会话菜单加置顶/重命名(index.html ?v= 同步)
+WEB_BUILD = "20260928d"  # 20260928d:过程行(⚡/步骤)默认折叠块;正文不折叠(index.html ?v= 同步)
 
 
 class DiffGateSession:

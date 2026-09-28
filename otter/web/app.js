@@ -107,6 +107,7 @@ window.otterUI = {
     if (!currentAssistant) {          // 首 delta:开流式块(思考行保留,钉在底部)
       startAssistant();
       rawBuf = "";
+      procLog = null;  // 2026-09-28 正文开始=过程块收口(本轮过程行已定格在上方)
     }
     rawBuf += text;
     scheduleStreamRender();
@@ -161,6 +162,7 @@ window.otterUI = {
     }
   },
   onDone(payload) {
+    procLog = null;  // 2026-09-28 本轮收口:下轮 Run 的过程行开新块(不挤同块)
     hideThinking();
     // 修复(2026-09-23 重复回复):流式期间已有 assistant 块(finalize 会渲染剩余 buffer)
     // 不再另起新块——只在流式没产生块时(如无输出)才建终块
@@ -195,6 +197,7 @@ window.otterUI = {
   onHistory(messages) {
     thread.innerHTML = "";
     currentAssistant = null;
+    procLog = null;  // 2026-09-28 回放过程块按 assistant 分段重建
     // 修复(2026-09-23 #43):清空 thread 后必须复位 thinkingEl——否则它指向已分离
     // 节点,后续 ensureThinking 不重建、insertBefore 抛 NotFoundError(事件整批丢失)
     hideThinkingKeepTimer();
@@ -204,7 +207,7 @@ window.otterUI = {
         if (!(m.content || "").trim()) continue;
         startAssistant();
         renderMarkdown(currentAssistant.querySelector(".body"), m.content);
-        collapsify(currentAssistant, m.content);  // 2026-09-28 回放同样默认折叠长回复
+        procLog = null;  // 2026-09-28 正文出现=过程块收口(后续工具行开新块)
         finalizeAssistant();
       } else if (m.role === "tool") {
         const firstLine = (m.content || "").split("\n").find((l) => l.trim()) || "";
@@ -313,30 +316,8 @@ function finalizeAssistant() {
   if (streamRenderTimer) { clearTimeout(streamRenderTimer); streamRenderTimer = null; }
   if (rawBuf.trim()) {
     renderMarkdown(currentAssistant.querySelector(".body"), rawBuf);  // 收尾兜底:缓冲若有残留立即终渲染
-    collapsify(currentAssistant, rawBuf);  // 2026-09-28 长回复默认折叠(流式路径)
   }
   currentAssistant = null;
-}
-
-// 2026-09-28 长回复(思考过程)自动折叠:渲染后量高,超过阈值默认收起、
-// 可一键展开/收起——聊天流只留结论密度的可见高度,细节按需展开
-const COLLAPSE_MAX_H = 280;
-function collapsify(card, text) {
-  const body = card.querySelector(".body");
-  if (!body || card.querySelector(".collapse-toggle")) return;
-  const t = String(text || "");
-  const h = body.scrollHeight || 0;
-  if (h <= COLLAPSE_MAX_H && t.length <= 1500) return;  // 高度与字数双阈值(布局未完成时字数兜底)
-  card.classList.add("collapsible");
-  const btn = document.createElement("button");
-  btn.className = "collapse-toggle";
-  const kb = (t.length / 1000).toFixed(1);
-  btn.textContent = `展开思考过程(约 ${kb}k 字)`;
-  btn.onclick = () => {
-    const open = card.classList.toggle("expanded");
-    btn.textContent = open ? "收起" : `展开思考过程(约 ${kb}k 字)`;
-  };
-  card.appendChild(btn);
 }
 
 // ── diff 预览卡片(M3.5):GUI 侧展示变更,采纳后写盘(preview_gate 在 Python 侧)──
@@ -496,7 +477,50 @@ async function toggleFilePreview(p, anchor) {
   scrollBottom();
 }
 
+// 2026-09-28 过程折叠块(用户定版:黄色工具行默认折叠,黑色正文保留):
+// tool(⚡ 黄)与 system(─ 灰)两类过程行聚合进块,标题可点开合;
+// ok/err 等警示行与 assistant 正文不受影响。正文渲染时 procLog 置空断块。
+let procLog = null;
+function procLogEnsure() {
+  if (procLog && procLog._parent) return procLog;
+  const box = document.createElement("div");
+  box.className = "proc-log";
+  const head = document.createElement("div");
+  head.className = "proc-log-head";
+  const body = document.createElement("div");
+  body.className = "proc-log-body";
+  box.append(head, body);
+  box._steps = 0;
+  box._last = "";
+  box._head = head;
+  head.onclick = () => {
+    box.classList.toggle("open");
+    procLogHeadText(box);
+  };
+  mountAboveThinking(box);  // #43:统一挂载(含悬空守卫)
+  procLog = box;
+  procLogHeadText(box);
+  return box;
+}
+function procLogHeadText(box) {
+  const arrow = box.classList.contains("open") ? "▾" : "▸";
+  const last = box._last ? ` · 最近 ${box._last}` : "";
+  box._head.textContent = `⚡ 执行过程 ${box._steps} 步${last} ${arrow}`;
+}
 function meta(kind, text) {
+  if (kind === "tool" || kind === "system") {  // 过程行进折叠块(默认收起)
+    const box = procLogEnsure();
+    const div = document.createElement("div");
+    div.className = `meta ${kind}`;
+    div.textContent = text;
+    box.querySelector(".proc-log-body").appendChild(div);
+    if (kind === "tool") {
+      box._steps += 1;
+      box._last = String(text).replace(/^⚡\s*/, "").split(" ")[0] || box._last;
+    }
+    procLogHeadText(box);
+    return;
+  }
   const div = document.createElement("div");
   div.className = `meta ${kind}`;
   div.textContent = text;

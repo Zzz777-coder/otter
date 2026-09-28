@@ -80,7 +80,7 @@ const appSrc = fs.readFileSync(path.join(WEB, "app.js"), "utf-8");
 (0, eval)(markedSrc);
 // app.js 首行 "use strict":严格模式下 eval 的 function 声明不外泄——
 // 尾部追加显式导出(同作用域内赋值给 global)
-(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange, collapsify, beginRename };");
+(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange, beginRename };");
 if (!global.__exports || typeof global.__exports.renderMarkdown !== "function") {
   console.error("renderMarkdown 导出失败");
   process.exit(1);
@@ -204,20 +204,28 @@ const cardsInThread = () => threadEl.querySelectorAll(".artifact-preview-card").
 const metasInThread = () => threadEl.children.filter((c) => c._cl.has("meta") && !c._cl.has("thinking")).length;
 
 // 8a. 单对象契约(#44):MODEL_STARTED 渲染 step 行 + 思考行
+// 2026-09-28 过程行折叠改造后:system/tool 行进 .proc-log 块(默认收起)
 const m0 = metasInThread();
 otterUI2.onEvent({ type: "MODEL_STARTED", step: 1, mode: "normal" });
-check("#44 单对象 onEvent:MODEL_STARTED 渲染了 meta 行", metasInThread() === m0 + 1);
+const plog = threadEl.children.find((c) => c._cl.has("proc-log"));
+// 注:El 桩 querySelectorAll 只查直接子——过程行在 .proc-log-body 下,须经 body 数
+const plogMetas = () => {
+  const b = plog && plog.querySelector(".proc-log-body");
+  return b ? b.children.length : 0;
+};
+check("#44 单对象 onEvent:MODEL_STARTED 渲染过程块", !!plog && plogMetas() === 1);
 check("#44 单对象 onEvent:思考行在 thread 中", threadEl.querySelectorAll(".thinking").length === 1);
 
-// 8b. 单对象契约(#44):ARTIFACT 渲染 meta 行 + 完整卡片
+// 8b. 单对象契约(#44):ARTIFACT 渲染 meta 行 + 完整卡片(ok 行不进折叠块)
 otterUI2.onEvent({ type: "ARTIFACT", path: "demo/sample.py", name: "sample.py", note: "回归",
                    preview_type: "code", lang: "python", content: "print(1)\nprint(2)", size: 18 });
-check("#44 ARTIFACT:meta 兜底行渲染", metasInThread() === m0 + 2);
+check("#44 ARTIFACT:meta 兜底行渲染", metasInThread() === m0 + 1);
 check("#44 ARTIFACT:完整卡片渲染", cardsInThread() === 1);
 
 // 8c. 双参形态兼容(#44 修复采用双形态兼容,别把旧调用方断掉)
+// 2026-09-28:WARNING(system 类)进过程块——断言块内行数增长
 otterUI2.onEvent("RUN_BUDGET_WARNING", { used: 10, budget: 100 });
-check("#44 双参形态仍兼容", metasInThread() === m0 + 3);
+check("#44 双参形态仍兼容", plogMetas() === 2);
 
 // 8d. 悬空 thinkingEl 自愈(#43):onHistory 清屏(innerHTML="")后事件照常渲染
 otterUI2.onHistory([]);
@@ -547,31 +555,107 @@ check("R5 再点收起", cardsInThread() === r5Base);
       && renCalls[0][0] === 9 && renCalls[0][1] === "新名字");
   }
 
-  // 7y) 2026-09-28 长回复自动折叠:超阈值加 collapsible+展开按钮;短内容不动;
-  //     点按钮切换 expanded
+  // 7z) 2026-09-28 会话 ⋯ 菜单:渲染出菜单按钮与悬停菜单;菜单内"删除会话"
+  //     确认后调 delete_conversation,取消不调;点击不冒泡到行切换
   {
-    const collapsify = global.__exports.collapsify;  // 从初始导出面取(8 段重跑不覆盖)
-    const mkCard = () => {
-      const card = new El("div");
-      const body = new El("div");
-      body._cl.add("body");
-      body.scrollHeight = 999;  // 桩:超折叠高度
-      card.appendChild(body);
-      return card;
-    };
-    const long1 = mkCard();
-    collapsify(long1, "x".repeat(3000));
-    check("长回复加 collapsible", long1._cl.has("collapsible"));
-    const toggle = long1.children.find((c) => c._cl && c._cl.has("collapse-toggle"));
-    check("折叠卡带展开按钮(显示字数)", !!toggle && String(toggle.textContent).includes("3.0k"));
-    toggle.onclick();
-    check("点按钮展开(expanded)", long1._cl.has("expanded"));
-    toggle.onclick();
-    check("再点收起", !long1._cl.has("expanded"));
-    const short = mkCard();
-    short.children[0].scrollHeight = 100;
-    collapsify(short, "短回复");
-    check("短回复不折叠", !short._cl.has("collapsible"));
+    const delList = new El("div");
+    document.querySelector = (sel) =>
+      sel === "#convSearch" ? searchEl : sel === "#convList" ? delList :
+      sel === "#statusbar" ? statusEl : new El("div");
+    global.otterUI.onConversations([{ id: 7, title: "待删会话", active: false, sub: "" }]);
+    const item = delList.children[0];
+    const menuBtn = item.children.find((c) => c._cl && c._cl.has("conv-menu-btn"));
+    const menu = item.children.find((c) => c._cl && c._cl.has("conv-menu"));
+    check("会话项渲染 ⋯ 菜单按钮", !!menuBtn && String(menuBtn.textContent).includes("⋯"));
+    check("悬停菜单容器与删除项存在", !!menu);
+    // 2026-09-28 菜单三项后,删除项须按 danger 类定位(位置不再是第一项)
+    const delItem = menu.children.find((c) => c._cl && c._cl.has("conv-menu-item") && c._cl.has("danger"));
+    check("菜单含「删除会话」项", !!delItem && String(delItem.textContent).includes("删除会话"));
+    let delCalls = [], stopCalled = false;
+    global.window.pywebview.api.delete_conversation = async (cid) => { delCalls.push(cid); return true; };
+    global.confirm = () => false;
+    await delItem.onclick({ stopPropagation: () => { stopCalled = true; } });
+    check("确认框取消时不删除", delCalls.length === 0 && stopCalled === true);
+    global.confirm = () => true;
+    await delItem.onclick({ stopPropagation: () => { stopCalled = true; } });
+    check("确认后调用 delete_conversation(7)", delCalls.length === 1 && delCalls[0] === 7);
+  }
+
+  // 7x) 2026-09-28 会话菜单扩容:置顶切换 + 重命名(内联提交/取消)
+  {
+    const menuList = new El("div");
+    document.querySelector = (sel) =>
+      sel === "#convSearch" ? searchEl : sel === "#convList" ? menuList :
+      sel === "#statusbar" ? statusEl : new El("div");
+    global.otterUI.onConversations([{ id: 9, title: "可置顶会话", active: false, sub: "", pinned: false }]);
+    const item = menuList.children[0];
+    const menu2 = item.children.find((c) => c._cl && c._cl.has("conv-menu"));
+    const items = menu2.children.filter((c) => c._cl && c._cl.has("conv-menu-item"));
+    check("菜单含三项(置顶/重命名/删除)", items.length === 3);
+    const pinItem = items[0], renameItem = items[1];
+    check("未置顶时菜单显示「置顶」", String(pinItem.textContent) === "置顶");
+    let pinCalls = [];
+    global.window.pywebview.api.pin_conversation = async (cid, v) => { pinCalls.push([cid, v]); return true; };
+    await pinItem.onclick({ stopPropagation: () => {} });
+    check("点置顶调 pin_conversation(9,true)", pinCalls.length === 1
+      && pinCalls[0][0] === 9 && pinCalls[0][1] === true);
+    global.otterUI.onConversations([{ id: 9, title: "可置顶会话", active: false, sub: "", pinned: true }]);
+    const menu3 = menuList.children[0].children.find((c) => c._cl && c._cl.has("conv-menu"));
+    const items2 = menu3.children.filter((c) => c._cl && c._cl.has("conv-menu-item"));
+    check("已置顶时菜单显示「取消置顶」+标题带📌",
+      String(items2[0].textContent) === "取消置顶"
+      && String(menuList.children[0].querySelector(".conv-title").textContent).startsWith("📌"));
+    // 重命名:内联输入,Enter 提交调 rename_conversation(用第二次渲染的菜单项,
+    // 此前误用第一次渲染的 renameItem——闭包改的是旧 DOM,新 item 里找不到输入框)
+    let renCalls = [];
+    global.window.pywebview.api.rename_conversation = async (cid, v) => { renCalls.push([cid, v]); };
+    const renameItem2 = items2[1];
+    renameItem2.onclick({ stopPropagation: () => {} });
+    const input = menuList.children[0].children.find((c) => c._cl && c._cl.has("conv-rename"));
+    check("点重命名出现内联输入框", !!input);
+    input.value = "新名字";
+    await input.onkeydown({ key: "Enter" });
+    check("Enter 提交调 rename_conversation", renCalls.length === 1
+      && renCalls[0][0] === 9 && renCalls[0][1] === "新名字");
+  }
+
+  // 7y) 2026-09-28 过程行折叠(用户定版:黄⚡工具行折叠,黑正文保留):
+  //     onEvent 连续过程行聚一块默认收起;回放按 assistant 分段;点标题开合
+  {
+    const tEl = new El("div");
+    document.querySelector = (sel) =>
+      sel === "#thread" ? tEl : sel === "#convSearch" ? searchEl :
+      sel === "#convList" ? new El("div") : sel === "#statusbar" ? statusEl : new El("div");
+    // 闭包代际:重跑一次让新 otterUI 捕获本段单例 tEl(初始 otterUI 的 thread 是孤儿)
+    (0, eval)(appSrc);
+    const ui = global.otterUI;
+    ui.onEvent({ type: "MODEL_STARTED", step: 1 });
+    global.otterUI.onEvent({ type: "TOOL_STARTED", step: 1, name: "bash", arguments: { command: "ls" } });
+    global.otterUI.onEvent({ type: "TOOL_STARTED", step: 2, name: "grep", arguments: { query: "x" } });
+    const box = tEl.children.find((c) => c._cl && c._cl.has("proc-log"));
+    check("连续过程行聚合为一个折叠块", !!box);
+    check("默认收起(无 open)", box && !box.classList.contains("open"));
+    const head = box && box.querySelector(".proc-log-head");
+    check("标题含步数与最近工具", head && String(head.textContent).includes("2 步")
+      && String(head.textContent).includes("grep"));
+    if (head) head.onclick();
+    check("点标题展开", box && box.classList.contains("open"));
+    if (head) head.onclick();
+    check("再点收起", box && !box.classList.contains("open"));
+    // 回放分段:user→tool×2→assistant→tool×1 → 两个块(正文间隔断)
+    // ui 闭包的 thread 已绑 tEl,此处清空复用(另设 t2 无效)
+    tEl.children = [];
+    ui.onHistory([
+      { role: "user", content: "问" },
+      { role: "tool", content: "结果A", name: "bash" },
+      { role: "tool", content: "结果B", name: "grep" },
+      { role: "assistant", content: "正文回答" },
+      { role: "tool", content: "结果C", name: "make_pdf" },
+    ]);
+    const boxes = tEl.children.filter((c) => c._cl && c._cl.has("proc-log"));
+    check("回放按正文分段成 2 块", boxes.length === 2);
+    check("第二块 1 步", boxes.length === 2
+      && String(boxes[1].querySelector(".proc-log-head").textContent).includes("1 步"));
   }
 
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);
