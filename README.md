@@ -154,6 +154,9 @@ asyncio.run(main())
 otter --serve               # 127.0.0.1:8765,/docs 交互文档
 curl -s localhost:8765/api/health
 curl -s localhost:8765/api/conversations
+# SSE 流式 chat(断连≠取消,事件与消息全程落库,可经只读端点回看):
+curl -N -X POST localhost:8765/api/chat -H 'content-type: application/json' \
+     -d '{"prompt":"跑一遍测试并总结失败原因","max_steps":30}'
 ```
 
 ### 部署:单人云服务器 + 定时任务
