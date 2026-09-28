@@ -242,9 +242,14 @@ class OtterWebGui:
                 _art.preview_fn = self._artifact_preview
             # 2026-09-29 L2:给 dispatch 可写子代理注入主审批通道——子代理写盘
             # 弹同款 diff 卡片,批/拒不落地与主代理同语义(与 preview_fn 同注入模式)
+            # 2026-09-29 L3:orchestrate 编排的 worker 写入同走此通道
             _disp = registry.get("dispatch")
             if _disp is not None:
                 _disp.set_gates(preview_gate=diff_preview_gate,
+                                approval_gate=build_gate(window=self.window))
+            _orch = registry.get("orchestrate")
+            if _orch is not None:
+                _orch.set_gates(preview_gate=diff_preview_gate,
                                 approval_gate=build_gate(window=self.window))
             if self.memory_bundle is None:
                 self.memory_bundle = memory_bundle

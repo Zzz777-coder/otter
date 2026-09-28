@@ -110,6 +110,10 @@ def build_full(store: Store, memory_root: Path | None = None,
 
         registry.register(SubagentTool(adapter, registry, store))
         registry.register(WritableSubagentTool(adapter, registry, store))
+        # 2026-09-29 L3:多角色编排工具(deferred:低频重器,tool_search 激活)
+        from otter.orchestrator import OrchestrateTool
+
+        registry.register(_mark_deferred(OrchestrateTool(adapter, registry, store)))
     return registry, bundle
 
 
