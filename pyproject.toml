@@ -3,14 +3,14 @@ name = "otter-agent"
 dynamic = ["version"]  # 2026-09-29 P1:版本单源=otter/__init__.py 的 __version__(tool.setuptools.dynamic 声明处取值)
 description = "Otter — 轻量本地通用 AI 助手:编码/文件/命令/网页/日常,OpenAI 兼容 + Anthropic 原生,双层记忆与 Skill"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"  # 2026-09-29 P7:SPDX 表达式(旧 classifier 写法已被打包工具弃用提示)
+license-files = ["LICENSE"]
 authors = [{ name = "Zzz777-coder" }]
 keywords = ["agent", "coding-agent", "cli", "llm", "deepseek", "anthropic", "ai"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

@@ -14,11 +14,19 @@ import argparse
 import sys
 
 
-def serve(host: str = "127.0.0.1", port: int = 8765) -> int:
-    parser = argparse.ArgumentParser(prog="otter.api", description="otter 本地 HTTP API 服务")
-    parser.add_argument("--host", default=host, help="绑定地址(默认 127.0.0.1,仅本机)")
-    parser.add_argument("--port", type=int, default=port, help="端口(默认 8765)")
-    args = parser.parse_args()
+def serve(host: str = "127.0.0.1", port: int = 8765, argv: list[str] | None = None) -> int:
+    """argv=None 且非直跑入口时不解析进程命令行(被 otter --serve 转发时,
+    进程 argv 是主 CLI 的参数,重读会误报 unrecognized;2026-09-29 冒烟暴露)。"""
+    import sys
+
+    direct = __name__ == "__main__" or argv is not None
+    args_host, args_port = host, port
+    if direct:
+        parser = argparse.ArgumentParser(prog="otter.api", description="otter 本地 HTTP API 服务")
+        parser.add_argument("--host", default=host, help="绑定地址(默认 127.0.0.1,仅本机)")
+        parser.add_argument("--port", type=int, default=port, help="端口(默认 8765)")
+        ns = parser.parse_args(sys.argv[1:] if argv is None else argv)
+        args_host, args_port = ns.host, ns.port
 
     import asyncio
     import pathlib
@@ -44,9 +52,9 @@ def serve(host: str = "127.0.0.1", port: int = 8765) -> int:
         return await build_engine(config=config, yes=True)
 
     engine = asyncio.run(_build())
-    print(f"[otter] API 服务:http://{args.host}:{args.port}/docs"
+    print(f"[otter] API 服务:http://{args_host}:{args_port}/docs"
           f"(工作区:{pathlib.Path.cwd()},模型:{config.model})")
-    uvicorn.run(create_app(engine=engine), host=args.host, port=args.port)
+    uvicorn.run(create_app(engine=engine), host=args_host, port=args_port)
     return 0
 
 

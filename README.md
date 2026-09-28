@@ -178,6 +178,17 @@ otter 是单用户本地工具(状态在工作区 `.otter/` 内);GUI 为桌面�
     --yes --output-format stream-json >> .otter/cron.log 2>&1
 ```
 
+### 部署:Docker(server 模式,无 GUI)
+
+```bash
+python -m build                                  # 产物在 dist/(镜像从 wheel 装)
+docker compose up -d                             # OTTER_API_KEY 经环境变量注入
+# 宿主访问 http://127.0.0.1:8765/docs;当前目录挂为工作区(状态在其 .otter/ 下)
+```
+
+容器只跑 server(HTTP API + SSE chat);密钥不进镜像。注意:`0.0.0.0` 绑定
+(`--serve-host` / 容器默认)会把无鉴权的 API 暴露到网络,只应在受信环境使用。
+
 多人 SaaS(每用户自带 key、Web 访问)不在当前架构内;如需请自行包 HTTP 层并做会话隔离。
 
 ## 开发检查

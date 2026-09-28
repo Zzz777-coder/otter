@@ -40,14 +40,21 @@ def main() -> int:
                         help="启动本地 HTTP API 服务(FastAPI,/docs 交互文档;2026-09-29 新增)")
     parser.add_argument("--serve-port", type=int, default=8765,
                         help="--serve 的端口(默认 8765;2026-09-29 新增)")
+    parser.add_argument("--serve-host", default="127.0.0.1",
+                        help="--serve 的绑定地址(默认 127.0.0.1 仅本机;容器/局域网用 0.0.0.0,须自担安全;2026-09-29 P7 新增)")
     args = parser.parse_args()
 
     # 2026-09-29 HTTP API 模式:R1 仅会话/消息/事件的读写,不依赖模型 key,
     # 故放在 api_key 检查之前分流;chat 类端点(R2)接入后再收紧
     if args.serve:
-        from otter.api import serve
-
-        return serve(port=args.serve_port)
+        # 2026-09-29 P7:host 可配(容器/局域网场景);默认仍仅绑 loopback;
+        # server extras 缺失给安装指引(与 GUI 同款,干净安装冒烟暴露裸 traceback 不友好)
+        try:
+            from otter.api import serve
+        except ImportError as exc:
+            print(f"API 服务依赖未安装({exc})。安装:pip install 'otter-agent[server]'", file=sys.stderr)
+            return 2
+        return serve(host=args.serve_host, port=args.serve_port)
 
     config = Config.load()
     if args.model:

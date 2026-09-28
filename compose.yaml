@@ -1,0 +1,20 @@
+# otter server 编排(2026-09-29 P7):单容器 server 模式,无 GUI。
+# 用法:OTTER_API_KEY=sk-... docker compose up -d
+# 密钥经环境变量注入(不进镜像/不入库);当前目录作为工作区挂载(状态在 .otter/ 下)。
+# 本机无 Docker 环境,此文件未实跑(2026-09-29 留档);宿主访问 http://127.0.0.1:8765/docs
+
+services:
+  otter:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      - OTTER_API_KEY=${OTTER_API_KEY:?请在环境变量提供 OTTER_API_KEY}
+      - OTTER_MODEL=${OTTER_MODEL:-deepseek-v4-flash}
+      # RAG 语义检索(可选):配任意 OpenAI 兼容 embeddings 端点
+      - OTTER_EMBED_MODEL=${OTTER_EMBED_MODEL:-}
+      - OTTER_EMBED_BASE_URL=${OTTER_EMBED_BASE_URL:-}
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    restart: unless-stopped
