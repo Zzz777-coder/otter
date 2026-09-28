@@ -100,10 +100,12 @@ def build_full(store: Store, memory_root: Path | None = None,
             registry.register(_mark_deferred(t))
         bundle = (mem_store, core, mem_ctx)
     # M4 子代理:explore 工具(只读探索,上下文隔离);需要 adapter
+    # 2026-09-29 L2:dispatch 可写子代理(权限三级 none/whitelist/full)同批注册
     if adapter is not None:
-        from otter.subagent import SubagentTool
+        from otter.subagent import SubagentTool, WritableSubagentTool
 
         registry.register(SubagentTool(adapter, registry, store))
+        registry.register(WritableSubagentTool(adapter, registry, store))
     return registry, bundle
 
 

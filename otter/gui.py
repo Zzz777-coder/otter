@@ -240,6 +240,12 @@ class OtterWebGui:
             _art = registry.get("artifact_publish")
             if _art is not None:
                 _art.preview_fn = self._artifact_preview
+            # 2026-09-29 L2:给 dispatch 可写子代理注入主审批通道——子代理写盘
+            # 弹同款 diff 卡片,批/拒不落地与主代理同语义(与 preview_fn 同注入模式)
+            _disp = registry.get("dispatch")
+            if _disp is not None:
+                _disp.set_gates(preview_gate=diff_preview_gate,
+                                approval_gate=build_gate(window=self.window))
             if self.memory_bundle is None:
                 self.memory_bundle = memory_bundle
             # 2026-09-24 运行中取消:保留 AgentLoop 实例引用 + 每 Run 新建 cancel event
