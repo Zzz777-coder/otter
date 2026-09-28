@@ -115,16 +115,42 @@ body {
 .conv-item:hover { background: #fff; box-shadow: 0 2px 10px rgba(63, 79, 104, 0.10); }
 .conv-item.active { background: var(--accent-soft); }
 
-/* 2026-09-28 会话删除按钮:默认隐藏,悬停项时浮现;点击不触发行切换 */
+/* 2026-09-28 会话操作:右侧 ⋯ 按钮(悬停项时浮现)+ 悬停呈现的操作菜单 */
 .conv-item { position: relative; }
-.conv-del {
+.conv-menu-btn {
   position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
-  width: 20px; height: 20px; line-height: 20px; text-align: center;
-  border-radius: 50%; color: #8490a1; font-size: 11px; cursor: pointer;
+  width: 22px; height: 22px; line-height: 22px; text-align: center;
+  border-radius: 6px; color: #8490a1; font-size: 14px; font-weight: 700; cursor: pointer;
   opacity: 0; transition: opacity .12s;
 }
-.conv-item:hover .conv-del { opacity: 1; }
-.conv-del:hover { background: #c95555; color: #fff; }
+.conv-item:hover .conv-menu-btn { opacity: 1; }
+.conv-menu-btn:hover { background: #e8ecf4; color: var(--text); }
+.conv-menu {
+  display: none; position: absolute; right: 6px; top: 34px; z-index: 30;
+  min-width: 128px; padding: 4px; background: #fff; border-radius: 9px;
+  box-shadow: 0 6px 22px rgba(24, 34, 51, 0.16); border: 1px solid #edf0f5;
+}
+.conv-item:hover .conv-menu { display: block; }  /* 悬停即出菜单(触碰显示) */
+.conv-menu-item { padding: 7px 12px; border-radius: 6px; font-size: 12px; color: var(--text); cursor: pointer; }
+.conv-menu-item:hover { background: #f2f5fa; }
+.conv-menu-item.danger { color: #c95555; }
+.conv-menu-item.danger:hover { background: #fdf0f0; }
+
+/* 2026-09-28 长回复(思考过程)自动折叠:默认限高+底部渐隐,展开恢复 */
+.msg-assistant.collapsible .body {
+  max-height: 280px; overflow: hidden; position: relative;
+}
+.msg-assistant.collapsible:not(.expanded) .body::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 64px;
+  background: linear-gradient(transparent, var(--bg, #f7f8fb));
+  pointer-events: none;
+}
+.msg-assistant.expanded .body { max-height: none; }
+.collapse-toggle {
+  margin-top: 8px; border: none; background: none; cursor: pointer;
+  color: var(--accent, #4f73d9); font-size: 12px; font-weight: 600; padding: 2px 0;
+}
+.collapse-toggle:hover { text-decoration: underline; }
 .conv-title {
   font-weight: 600; color: var(--text); font-size: 12.5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

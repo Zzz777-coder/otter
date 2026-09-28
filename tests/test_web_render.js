@@ -80,7 +80,7 @@ const appSrc = fs.readFileSync(path.join(WEB, "app.js"), "utf-8");
 (0, eval)(markedSrc);
 // app.js 首行 "use strict":严格模式下 eval 的 function 声明不外泄——
 // 尾部追加显式导出(同作用域内赋值给 global)
-(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange };");
+(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange, collapsify };");
 if (!global.__exports || typeof global.__exports.renderMarkdown !== "function") {
   console.error("renderMarkdown 导出失败");
   process.exit(1);
@@ -483,8 +483,8 @@ check("R5 再点收起", cardsInThread() === r5Base);
   check("取消选择提示「已取消选择」", String(statusEl.textContent).includes("已取消选择"));
   global.window.pywebview.api.get_runs = _getRuns;  // 还原
 
-  // 7z) 2026-09-28 会话删除按钮:渲染出 .conv-del;确认后调 delete_conversation,
-  //     取消不调;点击不冒泡到行切换(stopPropagation 被调用)
+  // 7z) 2026-09-28 会话 ⋯ 菜单:渲染出菜单按钮与悬停菜单;菜单内"删除会话"
+  //     确认后调 delete_conversation,取消不调;点击不冒泡到行切换
   {
     const delList = new El("div");
     document.querySelector = (sel) =>
@@ -492,16 +492,47 @@ check("R5 再点收起", cardsInThread() === r5Base);
       sel === "#statusbar" ? statusEl : new El("div");
     global.otterUI.onConversations([{ id: 7, title: "待删会话", active: false, sub: "" }]);
     const item = delList.children[0];
-    const delBtn = item.children.find((c) => c._cl && c._cl.has("conv-del"));
-    check("会话项渲染删除按钮(.conv-del)", !!delBtn);
+    const menuBtn = item.children.find((c) => c._cl && c._cl.has("conv-menu-btn"));
+    const menu = item.children.find((c) => c._cl && c._cl.has("conv-menu"));
+    check("会话项渲染 ⋯ 菜单按钮", !!menuBtn && String(menuBtn.textContent).includes("⋯"));
+    check("悬停菜单容器与删除项存在", !!menu);
+    const delItem = menu.children.find((c) => c._cl && c._cl.has("conv-menu-item"));
+    check("菜单含「删除会话」项", !!delItem && String(delItem.textContent).includes("删除会话"));
     let delCalls = [], stopCalled = false;
     global.window.pywebview.api.delete_conversation = async (cid) => { delCalls.push(cid); return true; };
     global.confirm = () => false;
-    await delBtn.onclick({ stopPropagation: () => { stopCalled = true; } });
+    await delItem.onclick({ stopPropagation: () => { stopCalled = true; } });
     check("确认框取消时不删除", delCalls.length === 0 && stopCalled === true);
     global.confirm = () => true;
-    await delBtn.onclick({ stopPropagation: () => { stopCalled = true; } });
+    await delItem.onclick({ stopPropagation: () => { stopCalled = true; } });
     check("确认后调用 delete_conversation(7)", delCalls.length === 1 && delCalls[0] === 7);
+  }
+
+  // 7y) 2026-09-28 长回复自动折叠:超阈值加 collapsible+展开按钮;短内容不动;
+  //     点按钮切换 expanded
+  {
+    const collapsify = global.__exports.collapsify;  // 从初始导出面取(8 段重跑不覆盖)
+    const mkCard = () => {
+      const card = new El("div");
+      const body = new El("div");
+      body._cl.add("body");
+      body.scrollHeight = 999;  // 桩:超折叠高度
+      card.appendChild(body);
+      return card;
+    };
+    const long1 = mkCard();
+    collapsify(long1, "x".repeat(3000));
+    check("长回复加 collapsible", long1._cl.has("collapsible"));
+    const toggle = long1.children.find((c) => c._cl && c._cl.has("collapse-toggle"));
+    check("折叠卡带展开按钮(显示字数)", !!toggle && String(toggle.textContent).includes("3.0k"));
+    toggle.onclick();
+    check("点按钮展开(expanded)", long1._cl.has("expanded"));
+    toggle.onclick();
+    check("再点收起", !long1._cl.has("expanded"));
+    const short = mkCard();
+    short.children[0].scrollHeight = 100;
+    collapsify(short, "短回复");
+    check("短回复不折叠", !short._cl.has("collapsible"));
   }
 
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);

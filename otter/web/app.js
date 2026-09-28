@@ -204,6 +204,7 @@ window.otterUI = {
         if (!(m.content || "").trim()) continue;
         startAssistant();
         renderMarkdown(currentAssistant.querySelector(".body"), m.content);
+        collapsify(currentAssistant, m.content);  // 2026-09-28 回放同样默认折叠长回复
         finalizeAssistant();
       } else if (m.role === "tool") {
         const firstLine = (m.content || "").split("\n").find((l) => l.trim()) || "";
@@ -310,8 +311,32 @@ function finalizeAssistant() {
   if (!currentAssistant) return;
   currentAssistant.classList.remove("busy");
   if (streamRenderTimer) { clearTimeout(streamRenderTimer); streamRenderTimer = null; }
-  if (rawBuf.trim()) renderMarkdown(currentAssistant.querySelector(".body"), rawBuf);  // 收尾兜底:缓冲若有残留立即终渲染
+  if (rawBuf.trim()) {
+    renderMarkdown(currentAssistant.querySelector(".body"), rawBuf);  // 收尾兜底:缓冲若有残留立即终渲染
+    collapsify(currentAssistant, rawBuf);  // 2026-09-28 长回复默认折叠(流式路径)
+  }
   currentAssistant = null;
+}
+
+// 2026-09-28 长回复(思考过程)自动折叠:渲染后量高,超过阈值默认收起、
+// 可一键展开/收起——聊天流只留结论密度的可见高度,细节按需展开
+const COLLAPSE_MAX_H = 280;
+function collapsify(card, text) {
+  const body = card.querySelector(".body");
+  if (!body || card.querySelector(".collapse-toggle")) return;
+  const t = String(text || "");
+  const h = body.scrollHeight || 0;
+  if (h <= COLLAPSE_MAX_H && t.length <= 1500) return;  // 高度与字数双阈值(布局未完成时字数兜底)
+  card.classList.add("collapsible");
+  const btn = document.createElement("button");
+  btn.className = "collapse-toggle";
+  const kb = (t.length / 1000).toFixed(1);
+  btn.textContent = `展开思考过程(约 ${kb}k 字)`;
+  btn.onclick = () => {
+    const open = card.classList.toggle("expanded");
+    btn.textContent = open ? "收起" : `展开思考过程(约 ${kb}k 字)`;
+  };
+  card.appendChild(btn);
 }
 
 // ── diff 预览卡片(M3.5):GUI 侧展示变更,采纳后写盘(preview_gate 在 Python 侧)──
@@ -592,17 +617,25 @@ function renderConvs(convs) {
     const sub = document.createElement("div");
     sub.className = "conv-sub";
     sub.textContent = c.sub || "";
-    // 2026-09-28 会话单个删除:悬停显示 ✕,确认后经桥删库(当前会话删除=回到待机态)
-    const del = document.createElement("div");
-    del.className = "conv-del";
-    del.textContent = "✕";
-    del.title = "删除此会话";
-    del.onclick = async (e) => {
+    // 2026-09-28 会话操作入口:右侧 ⋯(悬停显示),菜单先只有"删除会话"
+    // (2026-09-28 二次改版:✕ 直删 → ⋯ 菜单收编,后续功能都进这个菜单)
+    const menuBtn = document.createElement("div");
+    menuBtn.className = "conv-menu-btn";
+    menuBtn.textContent = "⋯";
+    menuBtn.title = "会话操作";
+    menuBtn.onclick = (e) => e.stopPropagation();  // 点击 ⋯ 本身不切会话;菜单由 CSS 悬停呈现
+    const menu = document.createElement("div");
+    menu.className = "conv-menu";
+    const delItem = document.createElement("div");
+    delItem.className = "conv-menu-item danger";
+    delItem.textContent = "删除会话";
+    delItem.onclick = async (e) => {
       e.stopPropagation();
       if (!confirm(`删除会话「${c.title || "会话 #" + c.id}」?此操作不可恢复。`)) return;
       await window.pywebview.api.delete_conversation(c.id);
     };
-    div.append(t, sub, del);
+    menu.appendChild(delItem);
+    div.append(t, sub, menuBtn, menu);
     div.onclick = () => window.pywebview.api.switch_conversation(c.id);
     list.appendChild(div);
   }
