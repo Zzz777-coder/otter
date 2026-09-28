@@ -60,17 +60,44 @@ otter 在你的机器上本地运行:一个五拍循环的 Agent 引擎(停止�
 - **通用助手身份** — 编码、文件、命令、网页、计算、日常问答;实时信息(时间/网页)强制走工具,不凭训练记忆。
 - **多端点接入** — OpenAI 兼容协议(DeepSeek/OpenAI/Qwen/Ollama)+ **Anthropic 原生 Messages API**(改 base_url 自动切换)。
 - **双层记忆** — Core Memory 常驻注入,Ordinary Memory 建索引按需读取,Run 后反思更新,乐观锁防幻觉写。
+- **RAG 向量检索** — 文本分片 + Embedding(任意 OpenAI 兼容端点)+ sqlite-vec 向量列,记忆与文档 QA 双场景**混合检索**(FTS5 词法 ∪ 向量语义,RRF 融合);未配置 Embedding 自动退纯词法。
+- **子代理两级** — `explore` 只读探索(上下文隔离,只回传结论);`dispatch` 可写执行,权限三级(none / whitelist 路径围栏 / full),写盘与主代理同走人工审批(diff 卡片可批可拒,拒绝不落地)。
+- **多角色编排** — `orchestrate` 一个调用=planner 分解 → worker 并行 fan-out → reviewer 汇聚核对;单 worker 失败不牵连,评审只判不做。
+- **本地 HTTP API** — `otter --serve`(FastAPI):health/会话 CRUD/消息/Run 事件 + `POST /api/chat` **SSE 流式**(text_delta/工具事件/final 逐帧推送;断连≠取消,事件与消息全程落库可回看)。
+- **作为库嵌入** — `import otter; await otter.build_engine(workspace=...)` 三行起引擎,与 CLI 同一条装配路径。
+- **评估体系** — 26 任务固定集(编码/文件/命令/日常)+ 机器验收 + 一键 markdown 跑分报告(成功率/token/延迟/工具调用/失败模式分类)。
 - **Plan / Act 双模式** — PLAN 只读调查并产出结构化计划,人工采纳后切执行跑。
 - **Skill 体系** — 从真实 Run 提炼候选,人工确认转正;运行时 `<skills>` 注入,`skill_read` 按需取全文。
 - **Evidence 归档** — 工具输出截断前全文入库(sha256),模型可随时回取原文。
 - **Artifact 交付** — 文件/报告/PDF 作为可追踪交付物发布,GUI 内联预览+三通道打开;`make_pdf` 原生生成真 PDF。
 - **安全边界** — 权限审批三层 fail-closed(规则/会话/弹窗)、写盘 diff 确认(同目录一次放行)、可选 Seatbelt 沙箱、二进制魔数校验(防伪造 PDF)。
 - **中断恢复** — Checkpoint 记录中断边界,`--resume` 续跑;kill -9 也不丢状态。
-- **费用预算** — Run 级预算三段收口:60% 提醒 → 85% 收口 → 100% 硬停。
+- **费用预算** — Run 级预算三段收口:60% 提醒 → 85% 收口 → 100% 硬停;Trace 分账(runs/events)事后可查每分 token 去向。
 - **上下文管理** — tiktoken 事前估算 + 滚动摘要压缩(作用于请求视图,原始历史不动)。
 - **MCP 扩展** — stdio MCP Server 接入外部工具,经同一权限/执行/Trace 链路。
 - **headless** — `-p` 单任务 + `--output-format stream-json` NDJSON 流式输出,CI/cron 直接消费。
 - **桌面 GUI** — 五页工作台:对话/历史/记忆/交付物/设置,rail 徽标提醒新事件。
+
+### 量化效果
+
+| 指标 | 值 | 口径 |
+|---|---|---|
+| 评估成功率 | **26/26(100%)** | 26 任务固定集,机器验收(文件/命令输出/回答实测),deepseek-v4-flash 单轮 |
+| 平均延迟 / 步数 / 工具调用 | 4.6s / 4.3 步 / 3.5 次 | 同上,串行单任务 |
+| 单任务 token 成本 | ~15.6k in / 0.6k out | 厂商返回真实用量,非估算 |
+| 测试 | 后端 170 用例 + 前端 71 断言,全绿 | 全离线(pytest + node) |
+| 干净安装冒烟 | wheel[server] 装 → `--serve` → health/SSE chat 全通 | 独立 venv,PyPI 待发布 |
+
+逐任务明细:[evals/report.md](evals/report.md)。注:单轮结果,模型输出存在波动(任务集迭代期间的历史轮次为 88%/96%)。
+
+### 为什么自研,而不直接用 LangChain / LlamaIndex
+
+不是"造轮子瘾"。agent 的核心竞争力在**上下文工程**,而框架把这层抽象掉了:
+
+- **滚动摘要与记忆必须逐层可控** — 什么进 system、何时压缩、保留几条近消息、Core 与 Ordinary 怎么分工,这些决策每个都直接影响任务成败;隔一层"链"抽象就调不动。otter 的请求视图组装、token 预算、双层记忆每一层都是自己的代码,行为可测、可调、可复盘。
+- **长任务可靠性是工程问题不是编排问题** — 中断恢复(Checkpoint)、审批 fail-closed、diff 确认、预算三段收口、Trace 分账,这些是和循环本体同等重要的半壁江山;框架版 agent 在这些位置往往只剩"重试一次"。
+- **验证要对着自己的循环做** — 评估 harness 直接复用引擎的 runs/events 分账数据,拿第三方链路跑分,数字对不上自己的生产行为。
+- 代价也清楚:自己维护 adapter/打包/测试这层"轮子"。对一个单人深用的本地工具,这笔账划算。
 
 ## 如何拼在一起
 
@@ -194,7 +221,7 @@ docker compose up -d                             # OTTER_API_KEY 经环境变量
 ## 开发检查
 
 ```bash
-.venv/bin/python -m pytest tests/ -v    # 后端全离线(152 用例)
+.venv/bin/python -m pytest tests/ -v    # 后端全离线(170 用例)
 node tests/test_web_render.js           # 前端渲染冒烟(71 断言)
 # GUI 真机探针(真实窗口 DOM 断言,非目测):
 .venv/bin/otter --gui-artifact-probe    # 产物卡片 18 项
@@ -207,18 +234,25 @@ node tests/test_web_render.js           # 前端渲染冒烟(71 断言)
 otter/
 ├── otter/
 │   ├── loop.py            AgentLoop 五拍循环(核心)
+│   ├── engine.py          库形态装配入口(build_engine/Engine)
 │   ├── tools/             工具子系统(内置/通用/deferred/权限)
 │   ├── models/            adapter 层(OpenAI 兼容 + Anthropic 原生 + 工厂)
 │   ├── context/           token 估算 + 滚动摘要压缩
 │   ├── memory.py          双层记忆(Core/Ordinary + FTS5)
+│   ├── rag.py             RAG:分片 + Embedding + 向量列 + 混合检索 + doc_search
+│   ├── subagent.py        子代理:explore 只读 + dispatch 可写(权限三级)
+│   ├── orchestrator.py    多角色编排:planner/worker/reviewer + fan-out/join
 │   ├── skills.py          Skill 提炼/转正/运行时注入
 │   ├── evidence.py        截断前全文归档
 │   ├── artifact.py        交付物系统 + make_pdf
 │   ├── store.py           事件态持久化(SQLite)
-│   ├── repl.py / __main__.py   CLI(REPL/-p/headless stream-json)
+│   ├── api/               本地 HTTP API(FastAPI + SSE 流式 chat)
+│   ├── repl.py / __main__.py   CLI(REPL/-p/headless stream-json/--serve)
 │   ├── gui.py + web/      桌面 GUI(pywebview + 自写 HTML/CSS/JS)
 │   └── replan.py          领域扩展示例(默认关,OTTER_REPLAN=1 开)
-├── tests/                 离线测试(后端 pytest + 前端 node)
+├── tests/                 离线测试(后端 pytest 170 + 前端 node 71)
+├── evals/                 评估任务集 + harness + 跑分报告
+├── Dockerfile / compose.yaml   server 模式部署物
 ├── playground/            默认工作区(.otter/ 状态在内)
 └── docs/assets/           截图
 ```
@@ -235,6 +269,7 @@ otter/
 | M4 | MCP 客户端 + 子代理 + Skill Learning + Artifact + 领域扩展示例 + 打包 | ✅ 2026-09-22 |
 | M-GUI | v7+:pywebview+HTML;2026-09-24 增记忆页/交付物页/rail 徽标 | ✅ |
 | 2026-09-24 | Anthropic 原生 adapter · stream-json · Skill 运行时注入 · 身份通用化(通用 AI 助手 + current_time/web_fetch/calculate) | ✅ |
+| v0.6 2026-09-29 | HTTP API+SSE 流式 chat · **库化**(build_engine/workspace 显式传参) · **评估体系**(26 任务跑分) · **可写子代理**(权限三级+路径围栏) · **RAG 向量检索**(分片+Embedding+混合检索) · **多角色编排**(planner/worker/reviewer) · Docker/compose 部署物 · 版本单源 | ✅ |
 
 ## 边界
 
