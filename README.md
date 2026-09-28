@@ -127,6 +127,35 @@ otter -p "任务" --yes --output-format stream-json   # headless:NDJSON 流式(C
 
 支持端点:DeepSeek/OpenAI/Qwen/Ollama 等 OpenAI 兼容协议;**Anthropic 原生**只需 `OTTER_BASE_URL=https://api.anthropic.com`。配置项见 `.env.example`。
 
+### 作为库使用(v0.6 起)
+
+otter 不只是 CLI:核心引擎(执行循环/工具面/持久层/记忆)可以 `import otter` 嵌进你自己的程序:
+
+```python
+import asyncio
+import otter
+
+async def main():
+    # workspace 显式传入:状态(.otter/ 下 db/记忆/交付物)与文件操作都以它为根
+    engine = await otter.build_engine(workspace="/path/to/your/project", yes=True)
+    result = await engine.run_task("跑一遍测试并总结失败原因")
+    await engine.aclose()
+
+asyncio.run(main())
+```
+
+- `build_engine(workspace=None, config=None, yes=False, connect_mcp=True)` → `Engine`,一条装配路径与 CLI 完全一致;
+- 需要更细的控制时直接用公共 API 面:`AgentLoop`(执行核心)、`Store`(持久层)、`Config`、`build_full`/`build_gate`/`make_sandbox`(工具面/审批/沙箱)、`build_adapter`(模型接入);
+- HTTP API(`otter.api.create_app`,FastAPI)与桌面 GUI(`otter.gui.launch_gui`)为可选层,按需导入。
+
+### 本地 HTTP API(v0.6 起)
+
+```bash
+otter --serve               # 127.0.0.1:8765,/docs 交互文档
+curl -s localhost:8765/api/health
+curl -s localhost:8765/api/conversations
+```
+
 ### 部署:单人云服务器 + 定时任务
 
 otter 是单用户本地工具(状态在工作区 `.otter/` 内);GUI 为桌面壳不支持远程,服务器走 CLI:
@@ -142,7 +171,7 @@ otter 是单用户本地工具(状态在工作区 `.otter/` 内);GUI 为桌面�
 ## 开发检查
 
 ```bash
-.venv/bin/python -m pytest tests/ -v    # 后端全离线(128 用例)
+.venv/bin/python -m pytest tests/ -v    # 后端全离线(152 用例)
 node tests/test_web_render.js           # 前端渲染冒烟(71 断言)
 # GUI 真机探针(真实窗口 DOM 断言,非目测):
 .venv/bin/otter --gui-artifact-probe    # 产物卡片 18 项

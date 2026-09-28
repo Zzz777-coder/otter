@@ -10,21 +10,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import sys
-from pathlib import Path  # 2026-09-24 最近工作区登记用(cwd 解析)
+from pathlib import Path  # GUI 分流前的最近工作区登记用(cwd 解析)
 
 from otter import __version__
 from otter.config import Config
-from otter.loop import AgentLoop
-from otter.models import build_adapter
 from otter.repl import run_repl, run_single
-from otter.store import Store
-from otter.tools.builtin import builtin_registry
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="otter", description="otter — 轻量本地通用 AI 助手(编码/文件/命令/日常)")
+    parser.add_argument("--version", action="version", version=f"otter {__version__}",
+                        help="显示版本号并退出(2026-09-29 P1:版本单源=__init__.__version__)")
     parser.add_argument("-p", "--prompt", help="单任务模式:执行该任务后退出", default=None)
     parser.add_argument("--gui", action="store_true", help="启动桌面 GUI 薄壳(Tkinter,2026-09-19 新增)")
     parser.add_argument("--gui-probe", action="store_true", help="GUI 诊断模式:启动后跑 evaluate_js 真值探针并退出(2026-09-23)")
@@ -79,55 +76,23 @@ def main() -> int:
         return launch_gui(probe=args.gui_probe, e2e=args.gui_e2e, artifact_probe=args.gui_artifact_probe)
 
     async def _run() -> int:
-        from otter.agents_md import load_instructions
-        from otter.assembly import build_full, build_gate, make_sandbox
-        from otter.context.summarizer import RollingSummarizer
+        # 2026-09-29 P1:装配统一走库入口 build_engine(CLI 与 import otter 同一条装配路径)
+        from otter.engine import build_engine
 
-        store = Store()
-        await store.open()
-        # M2 启动 reconciliation:遗留 running 的 Run 修正为 interrupted(Checkpoint 为事实源)
-        fixed = await store.reconcile_interrupted_runs()
-        if fixed:
-            # 2026-09-24 修正:诊断提示改走 stderr——stream-json 模式下 stdout 必须是纯 NDJSON
+        try:
+            engine = await build_engine(config=config, yes=args.yes)
+        except RuntimeError as exc:  # key 缺失(库入口抛错,CLI 转终端提示)
+            print(f"错误:{exc}", file=sys.stderr)
+            return 2
+        if engine.reconciled:
+            # 2026-09-24 修正:诊断提示走 stderr——stream-json 模式下 stdout 必须是纯 NDJSON
             # (真机首跑即被这行污染,非法 JSON 行会打断 jq 逐行消费)
-            print(f"[otter] 启动修正:{fixed} 个遗留 Run 已标记 interrupted(otter --resume 可恢复)",
-                  file=sys.stderr)
-        # 2026-09-24 起 adapter 经工厂装配:Anthropic 原生 / OpenAI 兼容二选一
-        adapter = build_adapter(config.base_url, config.api_key, config.model,
-                                provider=config.provider, max_tokens=config.max_tokens)
-        summary_adapter = (
-            adapter
-            if not config.summary_model
-            else build_adapter(config.base_url, config.api_key, config.summary_model,
-                               provider=config.provider, max_tokens=config.max_tokens)
-        )
-        # M1→M4 装配:摘要/指令/git + 审批/沙箱/Evidence + 记忆/repo_map/deferred + 子代理 + MCP
-        activated: set[str] = set()
-        registry, memory_bundle = build_full(store, activated=activated, adapter=adapter)
-        # M4 MCP:按 ~/.otter/mcp.json 连外部 server(无配置=静默跳过)
-        from otter.mcp_client import connect_servers
-
-        mcp_report = await connect_servers(registry)
-        if mcp_report:
+            print(f"[otter] 启动修正:{engine.reconciled} 个遗留 Run 已标记 interrupted"
+                  "(otter --resume 可恢复)", file=sys.stderr)
+        if engine.mcp_report:
             # 2026-09-24 修正:同上,诊断提示走 stderr 保 stdout 纯 NDJSON
-            print("[otter] MCP: " + "; ".join(mcp_report), file=sys.stderr)
-        loop = AgentLoop(
-            adapter, registry, store,
-            summarizer=RollingSummarizer(summary_adapter),
-            context_budget=config.context_budget,
-            trigger_ratio=config.trigger_ratio,
-            keep_recent=config.keep_recent,
-            git_auto=config.git_auto,
-            instructions=load_instructions(),
-            approval_gate=None if args.yes else build_gate(),  # --yes:显式跳过审批(CI 用)
-            sandbox=make_sandbox(config.sandbox),
-            memory_bundle=memory_bundle,
-            edit_format=os.environ.get("OTTER_EDIT_FORMAT", "auto"),
-            activated_tools=activated,  # 修正:与 ToolSearchTool 同一对象(见 loop 注释)
-            run_budget=config.run_budget,
-            # v0.3(2026-09-24):反思同走便宜模型角色(OTTER_SUMMARY_MODEL 配置)
-            reflection_adapter=summary_adapter,
-        )
+            print("[otter] MCP: " + "; ".join(engine.mcp_report), file=sys.stderr)
+        loop, store = engine.loop, engine.store
         try:
             if args.resume:
                 from otter.repl import run_resume
@@ -145,10 +110,7 @@ def main() -> int:
             await run_repl(loop, store, max_steps)
             return 0
         finally:
-            await adapter.close()
-            if summary_adapter is not adapter:
-                await summary_adapter.close()
-            await store.close()
+            await engine.aclose()  # 2026-09-29 P1:释放统一走 Engine.aclose
 
     return asyncio.run(_run())
 

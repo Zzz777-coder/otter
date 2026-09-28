@@ -1,6 +1,6 @@
 [project]
 name = "otter-agent"
-version = "0.2.0"  # 2026-09-24 首发:R6-R14(make_pdf/记忆页/交付物页/徽标/stream-json/Anthropic adapter/Skill 注入)
+dynamic = ["version"]  # 2026-09-29 P1:版本单源=otter/__init__.py 的 __version__(tool.setuptools.dynamic 声明处取值)
 description = "Otter — 轻量本地通用 AI 助手:编码/文件/命令/网页/日常,OpenAI 兼容 + Anthropic 原生,双层记忆与 Skill"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -48,6 +48,10 @@ otter = "otter.__main__:main"
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+# 2026-09-29 P1:版本号唯一来源=otter/__init__.py 的 __version__,改版只改那一处
+[tool.setuptools.dynamic]
+version = { attr = "otter.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["otter*"]
