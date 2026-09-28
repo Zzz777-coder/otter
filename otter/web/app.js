@@ -613,7 +613,7 @@ function renderConvs(convs) {
     div.className = "conv-item" + (c.active ? " active" : "");
     const t = document.createElement("div");
     t.className = "conv-title";
-    t.textContent = c.title || `会话 #${c.id}`;
+    t.textContent = (c.pinned ? "📌 " : "") + (c.title || `会话 #${c.id}`);  // 2026-09-28 置顶标记
     const sub = document.createElement("div");
     sub.className = "conv-sub";
     sub.textContent = c.sub || "";
@@ -626,6 +626,18 @@ function renderConvs(convs) {
     menuBtn.onclick = (e) => e.stopPropagation();  // 点击 ⋯ 本身不切会话;菜单由 CSS 悬停呈现
     const menu = document.createElement("div");
     menu.className = "conv-menu";
+    // 2026-09-28 菜单扩容:置顶(切换)/重命名(内联编辑)/删除
+    const pinItem = document.createElement("div");
+    pinItem.className = "conv-menu-item";
+    pinItem.textContent = c.pinned ? "取消置顶" : "置顶";
+    pinItem.onclick = async (e) => {
+      e.stopPropagation();
+      await window.pywebview.api.pin_conversation(c.id, !c.pinned);  // 排序由服务端回推
+    };
+    const renameItem = document.createElement("div");
+    renameItem.className = "conv-menu-item";
+    renameItem.textContent = "重命名";
+    renameItem.onclick = (e) => { e.stopPropagation(); beginRename(div, t, c); };
     const delItem = document.createElement("div");
     delItem.className = "conv-menu-item danger";
     delItem.textContent = "删除会话";
@@ -634,7 +646,7 @@ function renderConvs(convs) {
       if (!confirm(`删除会话「${c.title || "会话 #" + c.id}」?此操作不可恢复。`)) return;
       await window.pywebview.api.delete_conversation(c.id);
     };
-    menu.appendChild(delItem);
+    menu.append(pinItem, renameItem, delItem);
     div.append(t, sub, menuBtn, menu);
     div.onclick = () => window.pywebview.api.switch_conversation(c.id);
     list.appendChild(div);
@@ -646,6 +658,30 @@ function renderConvs(convs) {
     list.appendChild(empty);
   }
 }
+// 2026-09-28 内联重命名(会话⋯菜单):标题换成输入框,回车/失焦提交、Esc 取消
+function beginRename(div, titleEl, c) {
+  if (div.querySelector(".conv-rename")) return;
+  const input = document.createElement("input");
+  input.className = "conv-rename";
+  input.value = c.title || "";
+  titleEl.replaceWith(input);
+  input.focus && input.focus();
+  input.select && input.select();
+  let done = false;
+  const commit = async () => {
+    if (done) return;
+    done = true;
+    const v = (input.value || "").trim();
+    if (v && v !== c.title) await window.pywebview.api.rename_conversation(c.id, v);
+    else renderConvs(lastConvs);  // 未变化/空:还原(列表回推由 rename 成功路径负责)
+  };
+  input.onblur = commit;
+  input.onkeydown = (ev) => {
+    if (ev && ev.key === "Enter") commit();
+    else if (ev && ev.key === "Escape") { done = true; renderConvs(lastConvs); }
+  };
+}
+
 // 搜索框:输入即从缓存重渲染(不跨桥,纯前端过滤)
 $("#convSearch").addEventListener("input", () => renderConvs(lastConvs));
 

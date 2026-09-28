@@ -62,7 +62,8 @@ class Store:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
+                updated_at REAL NOT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0   -- 2026-09-28 置顶(会话⋯菜单)
             );
             -- M2(2026-09-22):Evidence 不可变归档——工具输出截断前存原文,可回取
             CREATE TABLE IF NOT EXISTS evidence(
@@ -91,6 +92,11 @@ class Store:
         columns = {row[1] for row in await cursor.fetchall()}
         if "conversation_id" not in columns:
             await self._db.execute("ALTER TABLE messages ADD COLUMN conversation_id INTEGER")
+        # 2026-09-28 置顶列迁移(旧库补列;新库建表已含)
+        cursor = await self._db.execute("PRAGMA table_info(conversations)")
+        conv_cols = {row[1] for row in await cursor.fetchall()}
+        if "pinned" not in conv_cols:
+            await self._db.execute("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
         await self._db.commit()
 
     async def close(self) -> None:
@@ -148,14 +154,22 @@ class Store:
     async def list_conversations(self, limit: int = 50) -> list[dict]:
         # 2026-09-23 历史排版要求:卡片副行需要「N 轮对话」——
         # assistant 消息数作轮数,子查询一次拿齐(避免 N+1)
+        # 2026-09-28:置顶优先,组内仍按活跃时间倒序(会话⋯菜单的置顶)
         cursor = await self._db.execute(
-            "SELECT c.id, c.title, c.updated_at,"
+            "SELECT c.id, c.title, c.updated_at, c.pinned,"
             " (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'assistant')"
-            " FROM conversations c ORDER BY c.updated_at DESC LIMIT ?",
+            " FROM conversations c ORDER BY c.pinned DESC, c.updated_at DESC LIMIT ?",
             (limit,),
         )
-        return [{"id": r[0], "title": r[1], "updated_at": r[2], "rounds": r[3]}
+        return [{"id": r[0], "title": r[1], "updated_at": r[2], "pinned": bool(r[3]), "rounds": r[4]}
                 for r in await cursor.fetchall()]
+
+    async def pin_conversation(self, cid: int, pinned: bool) -> bool:
+        """置顶/取消置顶(2026-09-28 会话⋯菜单);不动 updated_at(排序位由 pinned 决定)。"""
+        cur = await self._db.execute(
+            "UPDATE conversations SET pinned=? WHERE id=?", (1 if pinned else 0, cid))
+        await self._db.commit()
+        return cur.rowcount > 0
 
     async def delete_conversation(self, cid: int) -> bool:
         """删除单个会话(2026-09-28 用户要求,对齐参考实现):conversations 行 +

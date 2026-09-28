@@ -135,6 +135,11 @@ body {
 .conv-menu-item:hover { background: #f2f5fa; }
 .conv-menu-item.danger { color: #c95555; }
 .conv-menu-item.danger:hover { background: #fdf0f0; }
+/* 2026-09-28 内联重命名:标题位换输入框 */
+.conv-rename {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--accent, #4f73d9);
+  border-radius: 6px; padding: 3px 6px; font-size: 12.5px; outline: none; background: #fff;
+}
 
 /* 2026-09-28 长回复(思考过程)自动折叠:默认限高+底部渐隐,展开恢复 */
 .msg-assistant.collapsible .body {

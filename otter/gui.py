@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260928b"  # 20260928b:长回复默认折叠+会话⋯菜单(index.html ?v= 同步)
+WEB_BUILD = "20260928c"  # 20260928c:会话菜单加置顶/重命名(index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -196,6 +196,7 @@ class OtterWebGui:
             label = time.strftime("%m月%d日 %H:%M", time.localtime(c["updated_at"])).lstrip("0")
             rounds = f"{c['rounds']} 轮对话" if c.get("rounds") else None
             out.append({"id": c["id"], "title": c["title"], "active": c["id"] == self.current_cid,
+                        "pinned": c.get("pinned", False),  # 2026-09-28 置顶标记(前端📌)
                         "sub": " · ".join(x for x in (label, rounds) if x)})
         return out
 
@@ -374,6 +375,40 @@ class OtterWebGui:
                 print(f"[switch] switched to {cid} via {path}, history={len(gui.history)}", flush=True)
                 fut = asyncio.run_coroutine_threadsafe(gui._conv_payload(), gui.loop)
                 gui._js("onConversations", fut.result(timeout=5))
+
+            def pin_conversation(self, cid: int, pinned: bool):
+                """置顶/取消置顶(2026-09-28 会话⋯菜单):落库+回推列表(排序服务端定)。"""
+                async def _do():
+                    if gui.store is None:
+                        return False
+                    ok = await gui.store.pin_conversation(cid, bool(pinned))
+                    gui._js("onConversations", await gui._conv_payload())
+                    return ok
+
+                fut = asyncio.run_coroutine_threadsafe(_do(), gui.loop)
+                try:
+                    return fut.result(timeout=5)
+                except Exception:
+                    return False
+
+            def rename_conversation(self, cid: int, title: str):
+                """重命名(2026-09-28 会话⋯菜单·内联编辑提交):复用 touch 的标题
+                更新;回推列表让所有端看到新名字。"""
+                async def _do():
+                    if gui.store is None:
+                        return False
+                    title = (title or "").strip()[:80]
+                    if not title:
+                        return False
+                    await gui.store.touch_conversation(cid, title=title)
+                    gui._js("onConversations", await gui._conv_payload())
+                    return True
+
+                fut = asyncio.run_coroutine_threadsafe(_do(), gui.loop)
+                try:
+                    return fut.result(timeout=5)
+                except Exception:
+                    return False
 
             def delete_conversation(self, cid: int):
                 """删除单个会话(2026-09-28 用户要求):删库+清缓存;删的是当前

@@ -80,7 +80,7 @@ const appSrc = fs.readFileSync(path.join(WEB, "app.js"), "utf-8");
 (0, eval)(markedSrc);
 // app.js 首行 "use strict":严格模式下 eval 的 function 声明不外泄——
 // 尾部追加显式导出(同作用域内赋值给 global)
-(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange, collapsify };");
+(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange, collapsify, beginRename };");
 if (!global.__exports || typeof global.__exports.renderMarkdown !== "function") {
   console.error("renderMarkdown 导出失败");
   process.exit(1);
@@ -496,7 +496,8 @@ check("R5 再点收起", cardsInThread() === r5Base);
     const menu = item.children.find((c) => c._cl && c._cl.has("conv-menu"));
     check("会话项渲染 ⋯ 菜单按钮", !!menuBtn && String(menuBtn.textContent).includes("⋯"));
     check("悬停菜单容器与删除项存在", !!menu);
-    const delItem = menu.children.find((c) => c._cl && c._cl.has("conv-menu-item"));
+    // 2026-09-28 菜单三项后,删除项须按 danger 类定位(位置不再是第一项)
+    const delItem = menu.children.find((c) => c._cl && c._cl.has("conv-menu-item") && c._cl.has("danger"));
     check("菜单含「删除会话」项", !!delItem && String(delItem.textContent).includes("删除会话"));
     let delCalls = [], stopCalled = false;
     global.window.pywebview.api.delete_conversation = async (cid) => { delCalls.push(cid); return true; };
@@ -506,6 +507,41 @@ check("R5 再点收起", cardsInThread() === r5Base);
     global.confirm = () => true;
     await delItem.onclick({ stopPropagation: () => { stopCalled = true; } });
     check("确认后调用 delete_conversation(7)", delCalls.length === 1 && delCalls[0] === 7);
+  }
+
+  // 7x) 2026-09-28 会话菜单扩容:置顶切换 + 重命名(内联提交/取消)
+  {
+    const menuList = new El("div");
+    document.querySelector = (sel) =>
+      sel === "#convSearch" ? searchEl : sel === "#convList" ? menuList :
+      sel === "#statusbar" ? statusEl : new El("div");
+    global.otterUI.onConversations([{ id: 9, title: "可置顶会话", active: false, sub: "", pinned: false }]);
+    const item = menuList.children[0];
+    const items = item.children.filter((c) => c._cl && c._cl.has("conv-menu-item"));
+    check("菜单含三项(置顶/重命名/删除)", items.length === 3);
+    const pinItem = items[0], renameItem = items[1];
+    check("未置顶时菜单显示「置顶」", String(pinItem.textContent) === "置顶");
+    let pinCalls = [];
+    global.window.pywebview.api.pin_conversation = async (cid, v) => { pinCalls.push([cid, v]); return true; };
+    await pinItem.onclick({ stopPropagation: () => {} });
+    check("点置顶调 pin_conversation(9,true)", pinCalls.length === 1
+      && pinCalls[0][0] === 9 && pinCalls[0][1] === true);
+    global.otterUI.onConversations([{ id: 9, title: "可置顶会话", active: false, sub: "", pinned: true }]);
+    const items2 = menuList.children[0].children.filter((c) => c._cl && c._cl.has("conv-menu-item"));
+    check("已置顶时菜单显示「取消置顶」+标题带📌",
+      String(items2[0].textContent) === "取消置顶"
+      && String(menuList.children[0].querySelector(".conv-title").textContent).startsWith("📌"));
+    // 重命名:内联输入,Enter 提交调 rename_conversation;Esc 还原
+    let renCalls = [], rendered = false;
+    global.window.pywebview.api.rename_conversation = async (cid, v) => { renCalls.push([cid, v]); };
+    const lastConvsBackup = global.__exports;  // renderConvs 走 lastConvs——用真实回推验证
+    renameItem.onclick({ stopPropagation: () => {} });
+    const input = menuList.children[0].children.find((c) => c._cl && c._cl.has("conv-rename"));
+    check("点重命名出现内联输入框", !!input);
+    input.value = "新名字";
+    await input.onkeydown({ key: "Enter" });
+    check("Enter 提交调 rename_conversation", renCalls.length === 1
+      && renCalls[0][0] === 9 && renCalls[0][1] === "新名字");
   }
 
   // 7y) 2026-09-28 长回复自动折叠:超阈值加 collapsible+展开按钮;短内容不动;
