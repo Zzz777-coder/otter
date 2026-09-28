@@ -197,10 +197,16 @@ class FileMemoryStore:
         q = query.strip()
         # 修正(2026-09-22):trigram 查询词需 ≥3 字符才产 token(两字中文词命中不了);
         # 短词直接走遍历分支。FTS 命中按写入顺序读文件重建完整条目。
+        # v0.4(2026-09-24,vesta 检索语义):多词查询从"整串短语匹配"放宽为
+        # 分词 OR + bm25 排序——此前"DeepSeek 配置 key"因顺序/连续性不同整串
+        # 匹配不到;≥3 字符的词各自 trigram 命中,按相关度取 TOP。
         if self._fts is not None and len(q) >= 3:
+            tokens = [t for t in re.split(r"[\s,，。;；、]+", q) if len(t) >= 3]
+            match = " OR ".join(f'"{t}"' for t in tokens) or f'"{q}"'
             try:
                 cur = self._fts.execute(
-                    "SELECT id FROM mem WHERE mem MATCH ? LIMIT ?", (f'"{q}"', limit)
+                    "SELECT id FROM mem WHERE mem MATCH ? ORDER BY bm25(mem) LIMIT ?",
+                    (match, limit),
                 )
                 return [e for row in cur.fetchall() if (e := self.read(row[0]))]
             except sqlite3.OperationalError:
