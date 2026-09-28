@@ -87,7 +87,7 @@ class PermissionEngine:
         self.user_rules.append(rule)
         self._save()  # 2026-09-24 重构:落盘收敛到 _save(与 remove 共用)
 
-    # 2026-09-24 补齐(vesta 对齐):规则查看/删除——GUI 与 CLI 此前都只能"写"不能"改",
+    # 2026-09-24 补齐(上游 对齐):规则查看/删除——GUI 与 CLI 此前都只能"写"不能"改",
     # 固化错了的 ALLOW/DENY 只能手编 json;补 /permissions 命令的管理面
     def list_rules(self) -> list[Rule]:
         return list(self.user_rules)
@@ -147,7 +147,7 @@ class ApprovalGate:
         if verdict == ALLOW:
             return True
         answer = await self.ask(tool, args)
-        # 2026-09-24 补齐(vesta 对齐):ask 可返回丰富判定 str——
+        # 2026-09-24 补齐(上游 对齐):ask 可返回丰富判定 str——
         # once=本次 / session=本会话 / always=固化 ALLOW 规则 / never=固化 DENY 规则 / deny=本次拒绝;
         # 兼容旧 bool 子类(True≈once / False≈deny),StubGate 等测试桩不用改
         if isinstance(answer, bool):
@@ -200,7 +200,7 @@ class WebApprovalGate(ApprovalGate):
     """GUI 审批门(2026-09-24 升级:confirm() 二态 → 独立四按钮审批窗)。
 
     此前 GUI 只有"允许/拒绝"二态,GUI 用户永远无法固化规则(只有 CLI 能写
-    permissions.json)——权限规则持久化在 GUI 侧断头(vesta 对齐轮补齐)。
+    permissions.json)——权限规则持久化在 GUI 侧断头(上游 对齐轮补齐)。
     实现复刻 gui._diffwin_ask 的成熟模式:临时 html + create_window + js_api
     回调记结果 + 轮询等待 + 代际计数防重入串线。窗创建失败回退 confirm()。
     """

@@ -1,17 +1,17 @@
 """Task 系统(v0.3,2026-09-24)——任务事实的权威源,独立于会话消息持久化。
 
-来源:vesta backend/app/task/ 四文件(models/store/tools/context)移植适配
-(vesta-copy 策略:结构与校验逻辑保留,按 otter 类型改写):
+来源:上游 backend/app/task/ 四文件(models/store/tools/context)移植适配
+(上游-copy 策略:结构与校验逻辑保留,按 otter 类型改写):
 - 数据模型(Task/TaskStep/TaskPatch):pydantic 校验原样(唯一步骤/单 in_progress/
   终态不可回退/done+blocked 必须带 note 等不变量);
 - FileTaskStore:每任务一个 JSON(<cwd>/.otter/tasks/<id>.json),临时文件+原子替换,
   乐观锁 revision,plan_accept/plan_reject 仅 PENDING 可转;
-- 4 工具:task_create/update/get/list;vesta 的 ToolExecutionContext 在 otter 没有,
+- 4 工具:task_create/update/get/list;上游 的 ToolExecutionContext 在 otter 没有,
   以共享 ctx dict(conversation_id/mode/run_id)替代——装配方(GUI/REPL)持有并更新;
 - 上下文注入:render_task_context 渲染预算受控快照(done 只留近 3 条、条目 500 字、
   列表 12 条、待办 12 步),由 loop._build_view 注入 <active_task> 段。
 
-与 vesta 的差异(刻意):无 legacy 迁移、无 recall_fields_for(otter 无该链)、
+与 上游 的差异(刻意):无 legacy 迁移、无 recall_fields_for(otter 无该链)、
 工具返回 str(otter 工具协议)、context 并入单 system 视图。
 """
 
@@ -42,7 +42,7 @@ _MAX_STEPS = 100
 _MAX_LIST_LIMIT = 100
 MAX_TASK_FILE_BYTES = 1_000_000
 
-# 会被当作"正在执行的活动任务"注入上下文的非终态状态(vesta 语义:PENDING
+# 会被当作"正在执行的活动任务"注入上下文的非终态状态(上游 语义:PENDING
 # 是计划已生成未开始,不算活动;ACTIVE/PAUSED 才注入)
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 _CONTEXT_TASK_STATUSES = frozenset({"active", "paused"})
@@ -55,7 +55,7 @@ def _tasks_root() -> Path:
     return root
 
 
-# ── 数据模型(移植自 vesta task/models.py,校验不变量原样) ──────────
+# ── 数据模型(移植自 上游 task/models.py,校验不变量原样) ──────────
 
 class TaskStatus(StrEnum):
     PENDING = "pending"
@@ -307,7 +307,7 @@ class TaskPatch(BaseModel):
         ))
 
 
-# ── FileTaskStore(移植自 vesta task/store.py;去 legacy 迁移) ───────
+# ── FileTaskStore(移植自 上游 task/store.py;去 legacy 迁移) ───────
 
 def _validate_task_id(task_id: str) -> str:
     if not isinstance(task_id, str):
@@ -372,7 +372,7 @@ def _scan_tasks(tasks_dir: Path) -> list[Task]:
             if task.id == path.stem:
                 tasks.append(task)
         except (OSError, ValueError, TypeError):
-            continue  # 损坏文件跳过(与 vesta 同:单文件坏不拖累整体)
+            continue  # 损坏文件跳过(与 上游 同:单文件坏不拖累整体)
     return tasks
 
 
@@ -426,7 +426,7 @@ def _apply_patch(task: Task, patch: TaskPatch, now: datetime) -> Task:
 
 
 def _validate_step_replacement(existing, replacement) -> None:
-    """重排计划不能删除或回退已开始执行的步骤(vesta 防伪造保护)。"""
+    """重排计划不能删除或回退已开始执行的步骤(上游 防伪造保护)。"""
     replacement_by_id = {step.id: step for step in replacement}
     for step in existing:
         if step.status not in {TaskStepStatus.DONE, TaskStepStatus.IN_PROGRESS}:
@@ -476,7 +476,7 @@ class FileTaskStore:
             return None
 
     async def resolve(self, identifier: str, *, owner_conversation_id: str | None = None) -> Task | None:
-        """完整 ID 或唯一前缀查找,可先按 owner 过滤(vesta 语义)。"""
+        """完整 ID 或唯一前缀查找,可先按 owner 过滤(上游 语义)。"""
         normalized = identifier.strip().lower()
         if not normalized:
             return None
@@ -598,7 +598,7 @@ class FileTaskStore:
         return lock
 
 
-# ── 上下文注入(移植自 vesta task/context.py 的 render_task_context) ──
+# ── 上下文注入(移植自 上游 task/context.py 的 render_task_context) ──
 
 TASK_CONTEXT_HEADER = (
     "以下是当前会话绑定的活动任务状态。目标和用户约束应继续遵守;"
@@ -632,7 +632,7 @@ def _visible_steps(steps: tuple[TaskStep, ...], *, recent_done_steps: int, max_p
 
 def render_task_context(task: Task, *, recent_done_steps: int = 3, max_entry_chars: int = 500,
                         max_list_entries: int = 12, max_pending_steps: int = 12) -> str:
-    """渲染预算受控的任务快照;Store 数据始终完整(vesta 预算口径)。"""
+    """渲染预算受控的任务快照;Store 数据始终完整(上游 预算口径)。"""
     visible, omitted_done, omitted_pending = _visible_steps(
         task.steps, recent_done_steps=recent_done_steps, max_pending_steps=max_pending_steps)
     payload = {
@@ -663,7 +663,7 @@ def render_task_context(task: Task, *, recent_done_steps: int = 3, max_entry_cha
 
 
 async def pending_plan_is_valid(store: FileTaskStore, conversation_id: str | None, task_id: str) -> bool:
-    """PENDING 计划有效性(Plan Mode 完成条件;vesta 语义:防伪造进度)。"""
+    """PENDING 计划有效性(Plan Mode 完成条件;上游 语义:防伪造进度)。"""
     if not conversation_id or not task_id:
         return False
     task = await store.resolve(task_id, owner_conversation_id=conversation_id)
@@ -676,7 +676,7 @@ async def pending_plan_is_valid(store: FileTaskStore, conversation_id: str | Non
     return True
 
 
-# ── 4 工具(移植自 vesta task/tools.py;ctx dict 替代 ToolExecutionContext) ──
+# ── 4 工具(移植自 上游 task/tools.py;ctx dict 替代 ToolExecutionContext) ──
 
 def _task_full_text(task: Task) -> str:
     return json.dumps(task.model_dump(mode="json"), ensure_ascii=False)
@@ -726,7 +726,7 @@ def _build_steps(raw_steps: object) -> tuple[TaskStep, ...]:
 
 
 def _build_update_steps(raw_steps: object) -> tuple[TaskStep, ...]:
-    """解析重排后的完整计划:保留已有 ID,新增步骤生成 ID(vesta 语义)。"""
+    """解析重排后的完整计划:保留已有 ID,新增步骤生成 ID(上游 语义)。"""
     if not isinstance(raw_steps, list):
         raise ValueError("'steps' must be a list")
     steps: list[TaskStep] = []
@@ -770,7 +770,7 @@ _TASK_CREATE_PARAMS = {
 
 
 class TaskCreateTool(Tool):
-    """创建用于长期跟踪进度的任务(文案移植 vesta)。"""
+    """创建用于长期跟踪进度的任务(文案移植 上游)。"""
 
     name = "task_create"
     description = (
@@ -854,7 +854,7 @@ class TaskUpdateTool(Tool):
         if not any(k in args for k in update_keys):
             return "[otter] 错误:task_update 需要至少一个更新字段(除 task_id 外)"
 
-        # Plan 模式限制(vesta 语义:计划期不改状态/不推进步骤——执行是采纳后的事)
+        # Plan 模式限制(上游 语义:计划期不改状态/不推进步骤——执行是采纳后的事)
         if str(self.ctx.get("mode", "")) == "plan":
             if "status" in args:
                 return "[otter] 错误:PLAN 模式下不能改变任务状态;任务由用户接受后才开始"
@@ -975,7 +975,7 @@ class TaskListTool(Tool):
 
 
 def build_task_tools(store: FileTaskStore | None = None, ctx: dict | None = None) -> list[Tool]:
-    """装配 4 个任务工具(与 vesta register_task_tools 同角色;otter 返回列表由装配方注册)。"""
+    """装配 4 个任务工具(与 上游 register_task_tools 同角色;otter 返回列表由装配方注册)。"""
     store = store or FileTaskStore()
     ctx = ctx if ctx is not None else {}
     return [TaskCreateTool(store, ctx), TaskUpdateTool(store, ctx),

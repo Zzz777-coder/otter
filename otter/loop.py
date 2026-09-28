@@ -59,19 +59,19 @@ MODE_PLAN = "plan"
 # 反而用不上技能——真机暴露:模型调 skill_read 被只读校验拦截(注入了却读不了)
 # 2026-09-24 身份通用化:web_fetch(只读网页)/calculate(纯计算)同为只读,一并放行
 # 2026-09-24 补:web_search 同为只读(查资料是 Plan 阶段高频动作)
-# v0.3:task 工具进 Plan 白名单(vesta 同)——Plan 模式的产物就是 PENDING 任务;
+# v0.3:task 工具进 Plan 白名单(上游 同)——Plan 模式的产物就是 PENDING 任务;
 # 计划内容(goal/steps/facts)可改,状态推进由工具层 PLAN 校验拦下
 PLAN_TOOLS = {"read_file", "grep", "glob", "repo_map", "tool_search", "skill_read",
               "web_fetch", "calculate", "web_search",
               "task_create", "task_update", "task_get", "task_list"}
 WRITE_TOOLS = {"write_file", "edit_file"}            # 成功后触发 git 自动提交
-# v0.3(2026-09-24)预算第四段 Closing:工具面收窄到交付类(vesta Closing 语义的结构化实现)
+# v0.3(2026-09-24)预算第四段 Closing:工具面收窄到交付类(上游 Closing 语义的结构化实现)
 CLOSING_TOOLS = {"write_file", "edit_file", "make_pdf", "artifact_publish",
                  "task_update", "task_get", "tool_search"}
 
 
 def looks_like_textual_tool_call(content: str | None) -> bool:
-    """识别被模型错误输出为普通文本的工具协议标记(移植 vesta runtime_helpers;
+    """识别被模型错误输出为普通文本的工具协议标记(移植 上游 runtime_helpers;
     DeepSeek 系弱模型高发:把 <tool_calls>/DSML 当正文吐出,系统零执行)。"""
     if not content:
         return False
@@ -213,7 +213,7 @@ class AgentLoop:
         defs = self.registry.definitions(active_extra=self._activated_tools)
         if mode == MODE_PLAN:
             defs = [d for d in defs if d.name in PLAN_TOOLS]
-        # v0.3(2026-09-24)预算 Closing 段:工具面收窄到交付类(vesta"仅保留交付工具");
+        # v0.3(2026-09-24)预算 Closing 段:工具面收窄到交付类(上游"仅保留交付工具");
         # 结构性限制——调查类工具直接从 schema 消失,弱模型想调也看不见
         if getattr(self, "_budget_closing", False):
             defs = [d for d in defs if d.name in CLOSING_TOOLS or d.name.startswith("task_")]
@@ -306,7 +306,7 @@ class AgentLoop:
         plan_context: str = "",  # Plan Mode v2(2026-09-23):采纳的计划注入 system(执行模式跑)
         cancel_event: asyncio.Event | None = None,  # 2026-09-24:协作式取消(GUI 停止键/超时器注入)
     ) -> AgentResult:
-        # 2026-09-24 运行中取消(vesta 对齐):此前只能硬抛(GUI fut.cancel / REPL Ctrl+C
+        # 2026-09-24 运行中取消(上游 对齐):此前只能硬抛(GUI fut.cancel / REPL Ctrl+C
         # 的 KeyboardInterrupt),在途工具被硬切、终态语义混乱(failed/interrupted 混用);
         # 现改为:检查点(每 Step 开头 + 每个工具执行前)看到 event 即优雅收尾,
         # 落统一终态 cancelled;硬取消保留为兜底(GUI fut.cancel 兜底路径落库同样收敛为 cancelled)
@@ -388,7 +388,7 @@ class AgentLoop:
             """返回 (段位, 是否补发warning);'hard' 表示应立即终止。
             跨段(如一次调用从 60% 以下直接跳到 85%+)时先补发 warning——
             沿"预警补发"先例(2026-09-22,离线测试暴露 elif 跳段)。
-            v0.3(2026-09-24):85% finalizing 后新增 92% closing 段(vesta Closing)——
+            v0.3(2026-09-24):85% finalizing 后新增 92% closing 段(上游 Closing)——
             收窄工具面到交付类,先把已有结果落盘/交付再收口。"""
             nonlocal warned, finalizing
             if not self.run_budget:
@@ -421,7 +421,7 @@ class AgentLoop:
 
         for step in range(1, max_steps + 1):
             # v0.3(2026-09-24):活动任务快照每 Step 重取——任务状态随时在变(工具轮里
-            # 可能刚 task_update 过),下一条请求必须看到最新进度(vesta 同为每请求注入);
+            # 可能刚 task_update 过),下一条请求必须看到最新进度(上游 同为每请求注入);
             # 失败静默(任务系统不应阻断主流程)
             self._task_context_text = ""
             _t_store = getattr(self.registry, "task_store", None)
@@ -456,7 +456,7 @@ class AgentLoop:
                     run_id, "CONTEXT_COMPACTED",
                     {"covered": state.covered, "compressions": state.compressions,
                      # v0.3(2026-09-24):压缩调用的 usage 进事件——Trace 分账
-                     # "summary"行数据源(vesta:压缩不免费,账本须可见)
+                     # "summary"行数据源(上游:压缩不免费,账本须可见)
                      "usage_in": _cu.input_tokens if _cu else None,
                      "usage_out": _cu.output_tokens if _cu else None},
                 )
@@ -513,7 +513,7 @@ class AgentLoop:
                                        total_tool_calls, usage or ModelUsage())
 
             # ⑤ 回复分岔
-            # v0.3(2026-09-24)弱模型兜底重试(移植 vesta 话术族):空响应/协议文本各限
+            # v0.3(2026-09-24)弱模型兜底重试(移植 上游 话术族):空响应/协议文本各限
             # 重试 1 次——注入 user 重试消息继续下一 Step;第二次仍异常则按原语义走
             # FINAL(空响应给出占位文本),不死循环
             if not resp.tool_calls:
@@ -536,7 +536,7 @@ class AgentLoop:
                     continue
                 # Plan Mode v2:计划产物轻校验 + 落盘(不改写终稿)
                 # v0.3(2026-09-24)升级:优先 Task 契约——会话存在有效 PENDING 任务即计划
-                # 成立(vesta 语义:goal+steps 非空且无伪造进度);无 Task 时退回 md 计划
+                # 成立(上游 语义:goal+steps 非空且无伪造进度);无 Task 时退回 md 计划
                 # 校验(兼容弱模型不调工具直接输出文本计划的老路径)
                 if mode == MODE_PLAN:
                     from otter.plans import plan_is_valid, save_plan

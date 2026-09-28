@@ -840,7 +840,7 @@ def _run_detail(gui: "OtterWebGui", run_id: int, db_path: Path | None = None) ->
         lines += ["", f"tokens: {tokens_in} in / {tokens_out} out",
                   "工具统计: " + (" · ".join(f"{k}×{v}" for k, v in tools.items()) or "无")]
         # v0.3(2026-09-24):Trace 分账——主模型/压缩/反思各行其责
-        # (vesta Run Detail 同口径;旧库事件无 usage 键的行记 0)
+        # (上游 Run Detail 同口径;旧库事件无 usage 键的行记 0)
         from otter.trace import summarize_run_usage
 
         ledger = summarize_run_usage(

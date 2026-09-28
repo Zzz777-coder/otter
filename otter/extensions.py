@@ -1,7 +1,7 @@
 """Extensions 安全导入(v0.5,2026-09-24)——GitHub Skill 仓库 / 本地源 / MCP JSON。
 
-来源:vesta backend/app/extensions/importer.py 移植适配(vesta-copy 策略)。
-两阶段安全模型(vesta 同款):
+来源:上游 backend/app/extensions/importer.py 移植适配(上游-copy 策略)。
+两阶段安全模型(上游 同款):
 - parse_import_plan(预览):**纯文本解析,不联网、不起子进程、不写盘**;
 - apply_import_plan(确认):GitHub 源走 api.github.com zipball 下载静态归档
   (20MB 流式限)或本地路径/zip 直读;归档安全解析(路径越界拒/符号链接跳过/
@@ -59,7 +59,7 @@ class SkillSource:
 
 @dataclass(frozen=True)
 class ExtensionImportPlan:
-    """预览与确认共用的不可变规范化计划(vesta 同款)。"""
+    """预览与确认共用的不可变规范化计划(上游 同款)。"""
 
     raw_input: str
     skill_sources: tuple[SkillSource, ...]
@@ -86,7 +86,7 @@ class ExtensionImportPlan:
 # ── 预览阶段(纯解析,不触网)───────────────────────────────────────
 
 def parse_import_plan(raw_input: str) -> ExtensionImportPlan:
-    """解析外部格式;本函数保证不联网、不执行输入中的命令、不写盘(vesta 承诺)。"""
+    """解析外部格式;本函数保证不联网、不执行输入中的命令、不写盘(上游 承诺)。"""
     cleaned = html.unescape(raw_input).strip()
     if not cleaned:
         raise ExtensionImportError("请提供 GitHub 地址 owner/repo、本地路径或 MCP JSON")
@@ -174,7 +174,7 @@ def _command_and_args(config: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
 
 
 def _skills_add_source(command: str, args: tuple[str, ...]) -> str | None:
-    """识别 `npx skills add <owner/repo>` 命令形态(vesta 同款)。"""
+    """识别 `npx skills add <owner/repo>` 命令形态(上游 同款)。"""
     executable = PurePosixPath(command).name.lower()
     if executable not in {"npx", "npm", "pnpm", "yarn", "bunx"}:
         return None
@@ -186,7 +186,7 @@ def _skills_add_source(command: str, args: tuple[str, ...]) -> str | None:
 
 
 def _parse_skill_source_or_command(value: str) -> SkillSource:
-    """非 JSON 输入:先识别 `npx skills add <repo>` 命令形态,否则当源解析(vesta 同款)。"""
+    """非 JSON 输入:先识别 `npx skills add <repo>` 命令形态,否则当源解析(上游 同款)。"""
     try:
         parts = shlex.split(value)
     except ValueError as exc:
@@ -260,7 +260,7 @@ def _validate_skill_md(content: bytes, expected_name: str) -> bool:
 
 
 def _skill_packages_from_zip(archive: bytes) -> list[dict[str, bytes]]:
-    """ZIP → [{相对路径: 内容}] 技能包(vesta 安全规则原样:越界拒/软链跳/限流)。"""
+    """ZIP → [{相对路径: 内容}] 技能包(上游 安全规则原样:越界拒/软链跳/限流)。"""
     try:
         bundle = zipfile.ZipFile(io.BytesIO(archive))
     except (OSError, zipfile.BadZipFile) as exc:
@@ -274,7 +274,7 @@ def _skill_packages_from_zip(archive: bytes) -> list[dict[str, bytes]]:
         if path.is_absolute() or ".." in path.parts:
             raise ExtensionImportError("归档包含越界路径")
         if stat.S_ISLNK(info.external_attr >> 16):
-            continue  # 符号链接跳过(vesta 同:防逃逸)
+            continue  # 符号链接跳过(上游 同:防逃逸)
         total += info.file_size
         if total > _MAX_SKILL_PACKAGE_BYTES:
             raise ExtensionImportError("Skill 文件超过 10MB 安全限制")
@@ -302,14 +302,14 @@ def _packages_from_dir(root: Path) -> list[dict[str, bytes]]:
 
 
 def _packages_from_files(files: dict[PurePosixPath, bytes]) -> list[dict[str, bytes]]:
-    """从平面文件集构造技能包:SKILL.md + 同目录白名单资源(vesta 同款)。"""
+    """从平面文件集构造技能包:SKILL.md + 同目录白名单资源(上游 同款)。"""
     packages: list[dict[str, bytes]] = []
     for path, content in files.items():
         if path.name != "SKILL.md":
             continue
         skill_name = path.parent.name
         if not _validate_skill_md(content, skill_name):
-            continue  # 校验不过的包跳过,不报错中断(vesta 同:装"通过校验的")
+            continue  # 校验不过的包跳过,不报错中断(上游 同:装"通过校验的")
         package = {"SKILL.md": content}
         for candidate, ccontent in files.items():
             try:
@@ -323,7 +323,7 @@ def _packages_from_files(files: dict[PurePosixPath, bytes]) -> list[dict[str, by
 
 
 async def _download_github_archive(slug: str) -> bytes:
-    """GitHub 静态归档下载(vesta 同款:api zipball + 流式 20MB 限)。"""
+    """GitHub 静态归档下载(上游 同款:api zipball + 流式 20MB 限)。"""
     import httpx2 as httpx
 
     url = f"https://api.github.com/repos/{slug}/zipball"

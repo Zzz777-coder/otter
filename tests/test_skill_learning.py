@@ -116,7 +116,7 @@ def test_distill_update_target_must_exist(tmp_path: Path):
 
 
 def test_distill_overlap_adjudication_downgrades_create(tmp_path: Path):
-    """CREATE + 仲裁判 same → 降级为 update(vesta 防重复二道闸)。"""
+    """CREATE + 仲裁判 same → 降级为 update(上游 防重复二道闸)。"""
     skills = tmp_path / "skills" / "pdf-report"
     skills.mkdir(parents=True)
     (skills / "SKILL.md").write_text("---\nname: pdf-report\ndescription: 旧技能\n---\n正文",

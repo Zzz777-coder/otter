@@ -100,7 +100,7 @@ def budget_hard_report(used: int, budget: int, tool_calls: int) -> str:
     )
 
 
-# v0.3(2026-09-24):预算第四段 Closing(文案移植 vesta _RUN_BUDGET_CLOSING_MESSAGE)
+# v0.3(2026-09-24):预算第四段 Closing(文案移植 上游 _RUN_BUDGET_CLOSING_MESSAGE)
 def budget_closing(used: int, budget: int) -> str:
     return (
         f"[otter 交付收口] 本 Run 已消耗约 {used} 计费 token(预算 {budget})。"
@@ -110,7 +110,7 @@ def budget_closing(used: int, budget: int) -> str:
     )
 
 
-# v0.3(2026-09-24):空响应/协议文本重试话术(文案移植 vesta loop.py 同名常量)
+# v0.3(2026-09-24):空响应/协议文本重试话术(文案移植 上游 loop.py 同名常量)
 EMPTY_FINAL_RETRY_MESSAGE = (
     "上一条模型响应没有可展示文本,也没有工具调用。请基于已有上下文给出一条完整、"
     "可直接展示给用户的最终回答;不要只输出内部思考。"

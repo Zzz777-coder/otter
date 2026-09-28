@@ -1,6 +1,6 @@
 """Skill Learning 簇挖掘(v0.4,2026-09-24)——从多个 Completed Task 蒸馏可复用技能。
 
-来源:vesta backend/app/skill_learning/ 移植适配(vesta-copy 策略)。两阶段流水线:
+来源:上游 backend/app/skill_learning/ 移植适配(上游-copy 策略)。两阶段流水线:
 1. TaskPatternMiner:只吃轻量 TaskCard 投影(title/goal/key_facts/final_steps),
    判断批内是否存在"本质相似且会复发"的任务簇(允许空);
 2. ProcedureDistiller:按簇深挖执行证据(Task.run_ids → 事件流压缩摘要),
@@ -10,9 +10,9 @@
 才触发一次(at-least-once:inflight batch 持久化,失败下次重试)。
 Human Gate:候选永远不自动生效;accept 才写正式 SKILL.md。
 
-与 vesta 的差异(刻意):模型调用直接用传入 adapter(otter 无 registry 工厂,挂点传
+与 上游 的差异(刻意):模型调用直接用传入 adapter(otter 无 registry 工厂,挂点传
 reflection_adapter=便宜模型角色);Trace 证据压缩简化——otter 的 Task.run_ids 已把
-事件范围限定到相关 Run,无需 vesta 的 TaskTraceSelector 锚点区间切分;catalog 全文
+事件范围限定到相关 Run,无需 上游 的 TaskTraceSelector 锚点区间切分;catalog 全文
 直塞(otter 技能规模小,省掉 RELEVANCE 预筛一次模型调用)。
 """
 
@@ -34,7 +34,7 @@ from otter.models.types import Message, ModelUsage
 
 _SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 
-# ── 提示词(移植 vesta skill_learning/prompts.py,原文) ─────────────
+# ── 提示词(移植 上游 skill_learning/prompts.py,原文) ─────────────
 
 _PATTERN_MINING_PROMPT = """You are Otter's Completed Task Pattern Miner.
 
@@ -144,7 +144,7 @@ Rules:
   already done that."""
 
 
-# ── 领域模型(移植 vesta models.py,校验不变量原样) ─────────────────
+# ── 领域模型(移植 上游 models.py,校验不变量原样) ─────────────────
 
 def _normalize_text(value: str) -> str:
     return " ".join(value.split()).strip()
@@ -270,7 +270,7 @@ class MiningWatermark(BaseModel):
     last_error: str | None = None
 
 
-# ── 持久化(移植 vesta store.py;.otter/skill-learning/) ─────────────
+# ── 持久化(移植 上游 store.py;.otter/skill-learning/) ─────────────
 
 def _learning_root() -> Path:
     root = Path.cwd() / ".otter" / "skill-learning"
@@ -299,7 +299,7 @@ class SkillCandidateStore:
         try:
             return MiningWatermark.model_validate_json(self.watermark_path.read_text(encoding="utf-8"))
         except Exception:
-            return MiningWatermark()  # 损坏重置(vesta 同:单文件坏不拖累)
+            return MiningWatermark()  # 损坏重置(上游 同:单文件坏不拖累)
 
     def save_watermark(self, wm: MiningWatermark) -> None:
         _write_json(self.watermark_path, wm.model_dump(mode="json"))
@@ -342,7 +342,7 @@ class SkillCandidateStore:
         return None
 
 
-# ── 模型调用小件(vesta _call.py 角色,otter 简版) ──────────────────
+# ── 模型调用小件(上游 _call.py 角色,otter 简版) ──────────────────
 
 async def _call_json(adapter, system_prompt: str, user_content: str) -> tuple[dict | None, str | None]:
     """一次结构化 JSON 调用;返回 (payload, error)。"""
@@ -358,7 +358,7 @@ async def _call_json(adapter, system_prompt: str, user_content: str) -> tuple[di
         return None, f"{type(exc).__name__}: {exc}"
 
 
-# ── 第一阶段:Pattern Miner(vesta miner.py 移植) ──────────────────
+# ── 第一阶段:Pattern Miner(上游 miner.py 移植) ──────────────────
 
 async def mine_patterns(adapter, cards: list[TaskCard], min_cluster_size: int) -> tuple[list[TaskPatternCluster], str | None]:
     user_content = json.dumps([c.model_dump(mode="json") for c in cards], ensure_ascii=False, separators=(",", ":"))
@@ -370,17 +370,17 @@ async def mine_patterns(adapter, cards: list[TaskCard], min_cluster_size: int) -
     except Exception as exc:
         return [], f"invalid pattern mining schema: {exc}"
     valid_ids = {c.task_id for c in cards}
-    # 簇过滤:规模达标且 task_ids ⊆ 批次(vesta 同款防线:模型编造 id 直接弃)
+    # 簇过滤:规模达标且 task_ids ⊆ 批次(上游 同款防线:模型编造 id 直接弃)
     clusters = [cl for cl in parsed.clusters
                 if len(cl.task_ids) >= min_cluster_size and set(cl.task_ids).issubset(valid_ids)]
     return clusters, None
 
 
-# ── 第二阶段:Procedure Distiller(vesta distiller.py 简化移植) ─────
+# ── 第二阶段:Procedure Distiller(上游 distiller.py 简化移植) ─────
 
 async def _compress_trace(task, load_events) -> str:
     """压缩执行证据:Task.run_ids 限定的事件流 → 摘要文本(otter 简化:
-    run_ids 已圈定范围,无需 vesta TaskTraceSelector 的锚点区间切分)。"""
+    run_ids 已圈定范围,无需 上游 TaskTraceSelector 的锚点区间切分)。"""
     lines = [f"任务[{task.title}] 各 Run 执行证据:"]
     done_notes = [f"已完成步骤:{s.title}(依据:{s.note})" for s in task.steps if s.status.value == "done"]
     lines += done_notes[:10]
@@ -437,7 +437,7 @@ async def distill_cluster(adapter, cluster: TaskPatternCluster, tasks_by_id: dic
     if payload["action"] == "none":
         return payload, None
 
-    # CREATE 且目录非空 → 重叠仲裁(vesta 防重复二道闸)
+    # CREATE 且目录非空 → 重叠仲裁(上游 防重复二道闸)
     if payload["action"] == "create" and catalog_names:
         adj_payload, adj_err = await _call_json(
             adapter, _OVERLAP_ADJUDICATION_PROMPT,
@@ -453,7 +453,7 @@ async def distill_cluster(adapter, cluster: TaskPatternCluster, tasks_by_id: dic
     return payload, None
 
 
-# ── 编排:watermark 批处理(vesta service.py 的 maybe_run_mining 移植) ──
+# ── 编排:watermark 批处理(上游 service.py 的 maybe_run_mining 移植) ──
 
 def _batch_size() -> int:
     try:
@@ -541,7 +541,7 @@ async def maybe_run_mining(adapter, task_store, events_store, skills_root: Path 
             evidence_summary=f"簇[{cluster.pattern_name}]:{cluster.similarity_reason[:200]}")
         try:
             if store.find_duplicate_source(cand.source_task_ids) is not None:
-                continue  # 同源候选已存在(vesta 防重复)
+                continue  # 同源候选已存在(上游 防重复)
             store.create(cand)
             pending_names.append(cand.proposed_name)
             notes.append(f"{cand.action}:{cand.proposed_name}")
@@ -577,7 +577,7 @@ def review(candidate_id: str, accept: bool) -> str:
             body = _render_skill_md(cand, created_from=cand.id)
             (target / "SKILL.md").write_text(body, encoding="utf-8")
             msg = f"[otter] 技能 {cand.proposed_name} 已转正"
-        else:  # update:追加到既有 SKILL.md 末尾(vesta 同:扩展现有技能体)
+        else:  # update:追加到既有 SKILL.md 末尾(上游 同:扩展现有技能体)
             path = root / cand.existing_skill_name / "SKILL.md"
             if not path.is_file():
                 return f"[otter] 目标技能 {cand.existing_skill_name} 不存在"

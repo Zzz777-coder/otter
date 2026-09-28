@@ -37,7 +37,7 @@ class ToolRegistry:
 
     def unregister(self, name: str) -> None:
         """v0.5(2026-09-24):注销工具——MCP server 失败回滚/关闭时反注册用
-        (vesta MCPClientManager 同款需求;pop 幂等=注销不存在的名字不炸)。"""
+        (上游 MCPClientManager 同款需求;pop 幂等=注销不存在的名字不炸)。"""
         self._tools.pop(name, None)
 
     def definitions(self, active_extra: set[str] | None = None,

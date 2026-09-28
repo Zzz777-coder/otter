@@ -140,7 +140,7 @@ async def _dispatch(loop: AgentLoop, store, history: list[Message], state: Summa
             on_event=on_event,  # 修正(2026-09-22):接入渲染回调(M0 起漏接)
             plan_context=plan_context,  # Plan Mode v2:采纳计划注入
         )
-        # v0.4(2026-09-24):Skill Learning 升级为簇挖掘批处理(vesta skill_learning 移植)——
+        # v0.4(2026-09-24):Skill Learning 升级为簇挖掘批处理(上游 skill_learning 移植)——
         # 每 Run 即时蒸馏(maybe_distill)退役;Completed Task 凑满一批
         # (OTTER_SKILL_BATCH,默认 20)才触发挖掘,走反思级便宜模型角色;
         # 失败静默不影响主结果(隔离取向)
@@ -419,7 +419,7 @@ async def run_repl(loop: AgentLoop, store, max_steps: int) -> None:
                               f"{len(t.run_ids)} 次运行[/]")
             continue
         if prompt.startswith("/permissions"):
-            # 2026-09-24 补齐(vesta 对齐):权限规则管理面——查看/删除固化规则;
+            # 2026-09-24 补齐(上游 对齐):权限规则管理面——查看/删除固化规则;
             # 此前规则只能经审批"[3]总是允许"写入,写错了只能手编 ~/.otter/permissions.json
             # 用 loop 上挂的同一 engine 对象:删除对当前会话立即生效
             # (若 --yes 模式无审批门,则临时构造仅读同一规则文件)
@@ -492,7 +492,7 @@ async def run_repl(loop: AgentLoop, store, max_steps: int) -> None:
                 console.print(f"[green]已写入 MCP {n}(重启后生效)[/]")
             continue
         if prompt.startswith("/usage"):
-            # v0.3(2026-09-24):Run 账本——主模型/压缩/反思分账(vesta Trace 同口径);
+            # v0.3(2026-09-24):Run 账本——主模型/压缩/反思分账(上游 Trace 同口径);
             # /usage 缺省=最近一次 Run,/usage <id> 指定
             from otter.trace import render_ledger, run_usage_ledger
 
