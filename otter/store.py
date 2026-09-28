@@ -170,6 +170,12 @@ class Store:
             "SELECT 1 FROM conversations WHERE id=?", (cid,))
         return await cur.fetchone() is not None
 
+    async def latest_run_id(self) -> int | None:
+        """最近一次 Run 的 id(2026-09-29 新增:评估 harness 取 trace 事件用;单进程串行场景安全)。"""
+        async with self._db.execute("SELECT MAX(id) FROM runs") as cur:
+            row = await cur.fetchone()
+        return row[0] if row else None
+
     async def pin_conversation(self, cid: int, pinned: bool) -> bool:
         """置顶/取消置顶(2026-09-28 会话⋯菜单);不动 updated_at(排序位由 pinned 决定)。"""
         cur = await self._db.execute(

@@ -15,3 +15,6 @@ dist/
 otter_agent.egg-info/
 dist_pypi/
 .idea/
+
+# 评估时间戳报告(可重建;入库的基线固定为 evals/report.md,2026-09-29)
+evals/report-*.md

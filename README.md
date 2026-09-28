@@ -127,6 +127,15 @@ otter -p "任务" --yes --output-format stream-json   # headless:NDJSON 流式(C
 
 支持端点:DeepSeek/OpenAI/Qwen/Ollama 等 OpenAI 兼容协议;**Anthropic 原生**只需 `OTTER_BASE_URL=https://api.anthropic.com`。配置项见 `.env.example`。
 
+### 评估(固定任务集跑分)
+
+26 个真实任务(编码/文件/命令/日常四类),机器验收——不看模型"说没说完",看文件、命令输出与最终回答实测。单轮基线(deepseek-v4-flash,2026-09-29):**成功率 26/26,平均延迟 4.6s,平均工具调用 3.5,单任务平均 ~15.6k input token**;逐任务明细见 [evals/report.md](evals/report.md)。注:单轮结果,模型输出存在波动(任务集迭代期间的历史轮次为 88%/96%)。
+
+```bash
+.venv/bin/python evals/run_evals.py            # 一键全跑,报告落 evals/
+.venv/bin/python evals/run_evals.py --category coding --limit 3   # 分组/抽样
+```
+
 ### 作为库使用(v0.6 起)
 
 otter 不只是 CLI:核心引擎(执行循环/工具面/持久层/记忆)可以 `import otter` 嵌进你自己的程序:
