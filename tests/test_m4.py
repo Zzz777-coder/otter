@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 
 from otter.artifact import ArtifactPublishTool, list_artifacts, open_artifact
-from otter.mcp_client import load_mcp_config
 from otter.skills import accept_candidate, list_skills, maybe_distill, load_watermark
 from otter.models.types import Message, ModelResponse, ModelUsage
 from otter.tools.builtin import MakePdfTool
@@ -151,14 +150,16 @@ def test_subagent_tool_plan_mode_readonly(tmp_path: Path, monkeypatch):
         assert "write_file" not in names and "bash" not in names
 
 
-# ── MCP 配置容错 ──────────────────────────────────────────────────
+# ── MCP 配置容错(v0.5 起 load_mcp_config → MCPConfigurationStore.load) ──
 
-def test_mcp_config_tolerates_missing_and_corrupt(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr("otter.mcp_client.CONFIG_PATH", tmp_path / "mcp.json")
-    assert load_mcp_config() == {}  # 无配置=空
+def test_mcp_config_tolerates_missing_and_corrupt(tmp_path: Path):
+    from otter.mcp_client import MCPConfigurationStore
+
+    store = MCPConfigurationStore(tmp_path / "mcp.json")
+    assert store.load().servers == ()       # 无配置=空
     (tmp_path / "mcp.json").write_text("{broken", encoding="utf-8")
-    assert load_mcp_config() == {}  # 损坏=空,不抛
+    assert store.load().servers == ()        # 损坏=空,不抛
     (tmp_path / "mcp.json").write_text(json.dumps(
         {"servers": {"demo": {"command": "echo", "args": ["hi"]}}}), encoding="utf-8")
-    cfg = load_mcp_config()
-    assert cfg["demo"]["command"] == "echo"
+    cfg = store.load()                        # 旧 dict 形态兼容读取
+    assert cfg.servers[0].name == "demo" and cfg.servers[0].command == "echo"
