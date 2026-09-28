@@ -37,12 +37,19 @@ def build_memory_tools(root: Path | None = None):
 
     class MemorySearchTool(Tool):
         name = "memory_search"
-        description = "按关键词搜索长期记忆(标题/摘要/全文),返回 id 与标题摘要。"
+        description = ("搜索长期记忆(混合检索:词法+语义向量;配置 OTTER_EMBED_MODEL "
+                       "后支持中文语义召回——词面不同但含义相关的记忆也能命中)。"
+                       "返回 id 与标题摘要。")
         parameters = {"type": "object", "properties": {"query": {"type": "string"}},
                       "required": ["query"]}
 
         async def run(self, args):
-            hits = store.search(str(args.get("query", "")))
+            # 2026-09-29 P5:词法(FTS5)∪ 向量(KNN)RRF 融合;未配置 Embedding
+            # 或向量分支失败时自动回纯词法(memory_hybrid_search 内部降级)
+            from otter.rag import build_embed_client_from_env, memory_hybrid_search
+
+            hits = await memory_hybrid_search(store, str(args.get("query", "")),
+                                              embed_client=build_embed_client_from_env())
             if not hits:
                 return "[otter] 无相关记忆"
             return "\n".join(f"{e.mid} {e.title}:{e.summary}" for e in hits)

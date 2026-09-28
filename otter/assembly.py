@@ -62,6 +62,10 @@ def full_registry(store: Store, activated: set[str] | None = None,
     # 2026-09-24 补:web_search 走 DuckDuckGo Lite 免 key 线路,deferred 注册
     # (与 web_fetch 同为低频网络工具;搜索+抓取两件套配齐"查实时信息"能力面)
     registry.register(_mark_deferred(WebSearchTool()))
+    # 2026-09-29 P5:doc_search 文档语义检索(分片+Embedding+混合检索,deferred)
+    from otter.rag import DocSearchTool
+
+    registry.register(_mark_deferred(DocSearchTool()))
     # v0.3(2026-09-24):Task 系统(task/ )——4 工具常驻(同为主工具面);
     # store/ctx 挂在 registry 上由 loop 统一写入(conversation_id/run_id/mode),
     # GUI/REPL 装配方无需各自维护
