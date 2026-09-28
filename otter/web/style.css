@@ -83,7 +83,11 @@ body {
   padding: 16px 12px;
   display: flex; flex-direction: column;
 }
-.convs-title { color: var(--muted); font-size: 11.5px; font-weight: 700; margin: 0 6px 8px; }
+/* 2026-09-24 会话页工作区切换(用户要求):「历史」标题行改 flex——左标题+右下拉 */
+.convs-title { color: var(--muted); font-size: 11.5px; font-weight: 700; margin: 0 6px 8px;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+#wsSelectChat { border: 1px solid var(--border); border-radius: 6px; background: transparent;
+  color: inherit; font: 600 10.5px inherit; padding: 2px 4px; max-width: 130px; cursor: pointer; }
 /* 2026-09-23 历史排版要求:标题下加搜索框(过滤逻辑在 app.js renderConvs) */
 #convSearch {
   border: 1px solid var(--border); border-radius: var(--radius-control);
@@ -227,6 +231,12 @@ body {
 #runsList { flex: 1; overflow-y: auto; min-height: 0; }
 .panel-title { color: var(--muted); font-weight: 700; font-size: 12px; margin-bottom: 8px; }
 #reloadRuns { border: none; background: transparent; color: var(--accent); cursor: pointer; font: inherit; }
+/* 2026-09-24 最近工作区(用户要求):历史页下拉切换查看根;记忆/交付物页头部查看标签
+   (会话页 #wsSelectChat 的样式在上方 convs-title 区单独定义,侧栏更窄) */
+#wsSelect { border: 1px solid var(--border); border-radius: 6px; background: transparent;
+  color: inherit; font: 600 11px inherit; padding: 3px 6px; max-width: 220px; cursor: pointer; }
+.ws-tag { color: var(--muted); font-size: 11px; font-weight: 600; margin-left: auto;
+  margin-right: 6px; padding: 2px 8px; border-radius: 999px; background: rgba(79,115,217,.10); }
 /* 2026-09-24 用户反馈第四轮:已完成最左+会话id缩小垫在下方(左栏两行);
    行与行之间灰色横线分隔(末行不画);保持平铺 */
 .run-item {

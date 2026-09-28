@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import os
 import sys
+from pathlib import Path  # 2026-09-24 最近工作区登记用(cwd 解析)
 
 from otter import __version__
 from otter.config import Config
@@ -48,6 +49,13 @@ def main() -> int:
     if not config.api_key:
         print("错误:未配置 OTTER_API_KEY(复制 .env.example 为 .env 并填入,或设置环境变量)", file=sys.stderr)
         return 2
+
+    # 2026-09-24 最近工作区(用户要求:GUI 跨工作区查看历史)——所有 CLI 形态
+    # (REPL/-p/GUI)启动即登记 cwd 到 ~/.otter/recent_workspaces.json;
+    # 登记失败静默(纯附加便利信息,不阻断启动)
+    from otter.workspaces import register_workspace
+
+    register_workspace(Path.cwd())
 
     # GUI 模式有自己的主循环(2026-09-19 M-GUI;M4 起为可选 extras,缺依赖时给出安装指引)
     if args.gui or args.gui_probe or args.gui_e2e or args.gui_artifact_probe:
@@ -106,6 +114,8 @@ def main() -> int:
             edit_format=os.environ.get("OTTER_EDIT_FORMAT", "auto"),
             activated_tools=activated,  # 修正:与 ToolSearchTool 同一对象(见 loop 注释)
             run_budget=config.run_budget,
+            # v0.3(2026-09-24):反思同走便宜模型角色(OTTER_SUMMARY_MODEL 配置)
+            reflection_adapter=summary_adapter,
         )
         try:
             if args.resume:

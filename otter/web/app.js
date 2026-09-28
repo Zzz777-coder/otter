@@ -88,6 +88,7 @@ window.otterUI = {
     $("#statusbar").textContent = `就绪 · 模型 ${payload.model}`;
     $("#modelBadge").textContent = payload.model;
     renderConvs(payload.conversations || []);
+    loadWorkspaces();  // 2026-09-24 最近工作区:后端就绪即拉清单填两个下拉(历史页查看+会话页切换)
   },
   // 2026-09-23 用户要求改版:单键 Act/Plan → 「普通/计划」分段控件;状态单一事实源
   // 仍在 Python(toggle_mode 回推),此处只做渲染——激活段/placeholder/状态栏/chat 提示行
@@ -708,6 +709,82 @@ async function loadRuns() {
   }
 }
 $("#reloadRuns").addEventListener("click", loadRuns);
+
+// ── 最近工作区(2026-09-24 新增,用户要求:GUI 跨工作区查看历史)──────────────
+// 两个下拉同一数据源:
+// - 历史页 #wsSelect:切换"查看根"(只换历史/记忆/交付物三页数据源,只读);
+// - 会话页 #wsSelectChat(2026-09-24 用户要求"像历史记录一样"):真切换工作区,
+//   切过去后新会话/发消息/写文件都属那个区(单一事实源在 Python,前端只渲染)。
+let lastWorkspaces = null;
+function _wsOptions(sel, selectedKey, withPicker) {
+  // 填充一个工作区下拉:selectedKey(w.viewing/w.current)为真值的项选中;
+  // withPicker(会话页):末尾固定「打开其他工作区…」入口(2026-09-24 用户要求新建工作区)
+  sel.innerHTML = "";
+  for (const w of lastWorkspaces || []) {
+    const opt = document.createElement("option");
+    opt.value = w.path;
+    opt.textContent = w.name + (w.current ? "(本工作区)" : "");
+    opt.selected = !!w[selectedKey];
+    sel.appendChild(opt);
+  }
+  if (withPicker) {
+    const opt = document.createElement("option");
+    opt.value = "__pick__";
+    opt.textContent = "＋ 打开其他工作区…";
+    sel.appendChild(opt);
+  }
+}
+async function loadWorkspaces() {
+  if (!window.pywebview || !window.pywebview.api.get_workspaces) return;
+  lastWorkspaces = await window.pywebview.api.get_workspaces();
+  _wsOptions($("#wsSelect"), "viewing");        // 历史页:查看根
+  _wsOptions($("#wsSelectChat"), "current", true);  // 会话页:当前工作区+打开其他入口
+  // 查看≠当前工作区时,记忆/交付物页头部亮出查看来源(是本工作区则不占位)
+  const viewing = (lastWorkspaces || []).find((w) => w.viewing);
+  const tag = viewing && !viewing.current ? `查看:${viewing.name}` : "";
+  $("#wsTagMemory").textContent = tag;
+  $("#wsTagArt").textContent = tag;
+}
+// 具名导出供 node 冒烟测试直调(与 loadRuns 同法,addEventListener 桩无法合成 change 事件)
+async function onWorkspaceChange() {
+  const r = await window.pywebview.api.set_view_workspace($("#wsSelect").value);
+  if (!r || !r.ok) {
+    $("#statusbar").textContent = "切换失败:该目录没有 .otter 库";
+    loadWorkspaces();  // 拒绝后恢复下拉原选中态
+    return;
+  }
+  // 切换成功:三页数据联动刷新(缓存与 DOM 一起换),下拉/标签随之更新
+  loadWorkspaces();
+  loadRuns();
+  loadMemory();
+  loadArtifacts();
+  $("#statusbar").textContent = "已切换查看工作区(对话与新任务仍属启动目录)";
+}
+$("#wsSelect").addEventListener("change", onWorkspaceChange);
+
+// ── 会话页工作区切换(2026-09-24 用户要求:会话列表正上方下拉,真切换)──
+// 切过去=在那个区干活:后端 chdir+Store 重开+会话状态清空,推 onBackendReady
+// 带新区会话列表;此处再联动刷新三个只读页。
+async function onChatWorkspaceChange() {
+  const v = $("#wsSelectChat").value;
+  // 2026-09-24 新建/打开工作区:固定项走系统目录选择框(FOLDER_DIALOG 可新建文件夹)
+  const r = v === "__pick__"
+    ? await window.pywebview.api.pick_workspace()
+    : await window.pywebview.api.switch_workspace(v);
+  if (!r || !r.ok) {
+    // 已取消/拒绝:恢复下拉选中态(取消不是错误,状态栏不吓人)
+    const msg = r && r.reason === "已取消" ? "已取消选择" : "切换失败:" + ((r && r.reason) || "未知");
+    $("#statusbar").textContent = msg;
+    loadWorkspaces();
+    return;
+  }
+  loadWorkspaces();
+  loadRuns();
+  loadMemory();
+  loadArtifacts();
+  $("#statusbar").textContent = "已切换工作区,会话与文件操作现属:" + r.path;
+}
+$("#wsSelectChat").addEventListener("change", onChatWorkspaceChange);
 
 // ── 长期记忆页(2026-09-24 新增):查看+搜索,只读;编辑能力留待后续轮次 ──
 // 数据快照经 gui.py _memory_payload 纯读生成(Core=JSON 条目,Ordinary=front matter 解析);

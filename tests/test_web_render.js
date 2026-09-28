@@ -80,7 +80,7 @@ const appSrc = fs.readFileSync(path.join(WEB, "app.js"), "utf-8");
 (0, eval)(markedSrc);
 // app.js 首行 "use strict":严格模式下 eval 的 function 声明不外泄——
 // 尾部追加显式导出(同作用域内赋值给 global)
-(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts, railDot };");
+(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange };");
 if (!global.__exports || typeof global.__exports.renderMarkdown !== "function") {
   console.error("renderMarkdown 导出失败");
   process.exit(1);
@@ -395,6 +395,93 @@ check("R5 再点收起", cardsInThread() === r5Base);
                      preview_type: "text", content: "hi", size: 2 });
   check("ARTIFACT 事件后 artifacts 键点亮", artsBtn.children[0] !== undefined
     && artsBtn.children[0]._cl.has("nav-dot"));
+
+  // 13) 最近工作区(2026-09-24 新增,用户要求):下拉渲染/查看标签/切换联动/失败恢复
+  const wsSelEl = new El("select"), wsTagMemEl = new El("span"), wsTagArtEl = new El("span");
+  const wsSelChatEl = new El("select");  // 2026-09-24 会话页工作区切换(用户要求)
+  document.querySelector = (s) => (s === "#wsSelect" ? wsSelEl
+    : s === "#wsSelectChat" ? wsSelChatEl
+    : s === "#wsTagMemory" ? wsTagMemEl : s === "#wsTagArt" ? wsTagArtEl
+    : s === "#runsList" ? runsList : s === "#coreList" ? coreListEl
+    : s === "#memList" ? memListEl : s === "#memSearch" ? memSearchEl
+    : s === "#artList" ? artListEl : s === "#artSearch" ? artSearchEl : _qm(s));
+  let wsSetCalls = [], runsCalls = 0;
+  const _getRuns = global.window.pywebview.api.get_runs;
+  global.window.pywebview.api.get_workspaces = async () => [
+    { path: "/Users/x/proj", name: "proj", current: true, viewing: false, display: "~/proj" },
+    { path: "/Users/x/ai-order", name: "ai-order", current: false, viewing: true, display: "~/ai-order" },
+  ];
+  global.window.pywebview.api.set_view_workspace = async (p) => { wsSetCalls.push(p); return { ok: true, path: p }; };
+  global.window.pywebview.api.get_runs = async () => { runsCalls++; return []; };
+  global.window.pywebview.api.get_memory = async () => ({ core: [], entries: [] });
+  global.window.pywebview.api.get_artifacts = async () => [];
+  const { loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange } = global.__exports;
+  await loadWorkspaces();
+  check("工作区下拉渲染 2 项", wsSelEl.children.length === 2);
+  check("下拉项文本=目录名,本工作区带标记", wsSelEl.children[0].textContent === "proj(本工作区)"
+    && wsSelEl.children[1].textContent === "ai-order");
+  check("当前查看项 selected", wsSelEl.children[1].selected === true
+    && wsSelEl.children[0].selected === false);
+  // 2026-09-24 会话页工作区切换:同一数据源第二个下拉,选中=当前工作区(current);
+  // 末尾固定「＋ 打开其他工作区…」入口(新建/打开下拉之外的目录)
+  check("会话页下拉渲染 2 工作区+1 入口", wsSelChatEl.children.length === 3);
+  check("会话页下拉选中=当前工作区(非查看项)", wsSelChatEl.children[0].selected === true
+    && wsSelChatEl.children[1].selected === false);
+  check("会话页下拉末尾有「打开其他工作区」入口", wsSelChatEl.children[2].value === "__pick__"
+    && wsSelChatEl.children[2].textContent === "＋ 打开其他工作区…");
+  check("查看≠启动目录时记忆/交付物页标签亮出来源", wsTagMemEl.textContent === "查看:ai-order"
+    && wsTagArtEl.textContent === "查看:ai-order");
+  // 切换成功路径:set_view_workspace 被调 + 历史页数据联动重拉(get_runs 计数)
+  const beforeRuns = runsCalls;
+  wsSelEl.value = "/Users/x/proj";
+  await onWorkspaceChange();
+  check("切换调 set_view_workspace(选中路径)", wsSetCalls.length === 1
+    && wsSetCalls[0] === "/Users/x/proj");
+  check("切换成功后历史页数据重拉", runsCalls === beforeRuns + 1);
+  // 修正(2026-09-24):handler 内三页刷新未逐个 await——flush microtask 清空挂起的
+  // 异步渲染,避免跨断言时序串扰(失败路径的计数被上一轮残留污染)
+  await new Promise((r) => setTimeout(r, 0));
+  // 失败路径:ok=False → 不重拉,仅恢复下拉(修正:失败版也要记录调用,否则计数恒 0)
+  global.window.pywebview.api.set_view_workspace = async (p) => { wsSetCalls.push(p); return { ok: false, path: "/Users/x/ai-order" }; };
+  wsSetCalls = [];
+  const beforeRuns2 = runsCalls;
+  await onWorkspaceChange();
+  await new Promise((r) => setTimeout(r, 0));
+  check("切换失败不重拉历史数据", wsSetCalls.length === 1 && runsCalls === beforeRuns2);
+  global.window.pywebview.api.get_runs = _getRuns;  // 还原,不影响后续
+
+  // 13b) 会话页工作区切换(2026-09-24 用户要求:像历史页一样的下拉,真切换)
+  let chatSwCalls = [];
+  global.window.pywebview.api.get_runs = async () => { runsCalls++; return []; };
+  global.window.pywebview.api.switch_workspace = async (p) => { chatSwCalls.push(p); return { ok: true, path: p }; };
+  const beforeRuns3 = runsCalls;
+  wsSelChatEl.value = "/Users/x/ai-order";
+  await onChatWorkspaceChange();
+  await new Promise((r) => setTimeout(r, 0));
+  check("会话页切换调 switch_workspace(选中路径)", chatSwCalls.length === 1
+    && chatSwCalls[0] === "/Users/x/ai-order");
+  check("会话页切换成功后三页数据重拉", runsCalls === beforeRuns3 + 1);
+  // busy 拒绝路径:reason 透传,不重拉
+  global.window.pywebview.api.switch_workspace = async (p) => { chatSwCalls.push(p); return { ok: false, reason: "任务运行中,结束后再切换" }; };
+  chatSwCalls = [];
+  const beforeRuns4 = runsCalls;
+  await onChatWorkspaceChange();
+  await new Promise((r) => setTimeout(r, 0));
+  check("会话页切换被拒不重拉数据", chatSwCalls.length === 1 && runsCalls === beforeRuns4);
+  // 2026-09-24 新建/打开工作区:选固定项走 pick_workspace(不调 switch_workspace)
+  let pickCalls = [];
+  global.window.pywebview.api.pick_workspace = async () => { pickCalls.push(1); return { ok: true, path: "/Users/x/new-ws" }; };
+  wsSelChatEl.value = "__pick__";
+  await onChatWorkspaceChange();
+  await new Promise((r) => setTimeout(r, 0));
+  check("选「打开其他工作区」调 pick_workspace", pickCalls.length === 1
+    && chatSwCalls.length === 1);  // switch_workspace 未再被调
+  // 取消路径:reason=已取消 → 状态栏提示但不算报错,下拉恢复
+  global.window.pywebview.api.pick_workspace = async () => ({ ok: false, reason: "已取消" });
+  await onChatWorkspaceChange();
+  await new Promise((r) => setTimeout(r, 0));
+  check("取消选择提示「已取消选择」", String(statusEl.textContent).includes("已取消选择"));
+  global.window.pywebview.api.get_runs = _getRuns;  // 还原
 
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);
   process.exit(failures === 0 ? 0 : 1);

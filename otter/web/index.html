@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
   <title>otter</title>
   <!-- 2026-09-22:版本查询串绕 WKWebView 静态缓存;marked(MIT)标准 markdown 渲染 -->
-  <link rel="stylesheet" href="style.css?v=20260924r" /><!-- 20260924r:历史页重合二修(摘要限宽含起点+右列钉尾) -->
+  <link rel="stylesheet" href="style.css?v=20260924u" /><!-- 20260924u:新建/打开工作区入口 -->
 </head>
 <body>
   <!-- 左侧图标栏 -->
@@ -39,7 +39,9 @@
   <div class="page active" id="page-chat">
     <aside id="convs">
       <!-- 2026-09-23 历史排版要求:标题改"历史"+搜索框+两行卡片(卡片由 app.js 渲染) -->
-      <div class="convs-title">历史</div>
+      <!-- 2026-09-24 会话页工作区切换(用户要求):会话列表正上方的工作区下拉,
+           与历史页同数据源;真切换——切过去新会话/发消息/写文件都属那个区 -->
+      <div class="convs-title"><span>历史</span><select id="wsSelectChat" title="切换工作区(会话与文件操作随切换)"></select></div>
       <input id="convSearch" type="text" placeholder="搜索" autocomplete="off" />
       <button id="newConv">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
@@ -72,6 +74,9 @@
   <div class="page" id="page-runs">
     <div class="runs-head">
       <div class="panel-title">历史记录</div>
+      <!-- 2026-09-24 最近工作区(用户要求):下拉切换查看其它工作区的历史
+           (~/.otter/recent_workspaces.json 登记;只影响查看,对话仍属启动目录) -->
+      <select id="wsSelect" title="切换查看的工作区"></select>
       <button id="reloadRuns" title="刷新">↻</button>
     </div>
     <div id="runsList"></div>
@@ -82,6 +87,7 @@
   <div class="page" id="page-memory">
     <div class="runs-head">
       <div class="panel-title">长期记忆</div>
+      <span class="ws-tag" id="wsTagMemory" title="当前查看的工作区(在历史记录页切换)"></span><!-- 2026-09-24 最近工作区:只读查看标签 -->
       <button id="reloadMemory" title="刷新">↻</button>
     </div>
     <input id="memSearch" type="text" placeholder="搜索" autocomplete="off" />
@@ -99,6 +105,7 @@
   <div class="page" id="page-artifacts">
     <div class="runs-head">
       <div class="panel-title">交付物</div>
+      <span class="ws-tag" id="wsTagArt" title="当前查看的工作区(在历史记录页切换)"></span><!-- 2026-09-24 最近工作区:只读查看标签 -->
       <button id="reloadArtifacts" title="刷新">↻</button>
     </div>
     <input id="artSearch" type="text" placeholder="搜索" autocomplete="off" />
@@ -112,6 +119,6 @@
 
   <footer id="statusbar">启动中…</footer>
   <script src="marked.min.js?v=1"></script>
-  <script src="app.js?v=20260924r"></script><!-- 20260924r:版本同步(样式改动) -->
+  <script src="app.js?v=20260924u"></script><!-- 20260924u:新建/打开工作区(目录选择框+真切换) -->
 </body>
 </html>
