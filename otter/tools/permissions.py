@@ -85,6 +85,22 @@ class PermissionEngine:
     def add(self, rule: Rule) -> None:
         """审批"总是允许/拒绝"时落盘固化(批准可固化为规则)。"""
         self.user_rules.append(rule)
+        self._save()  # 2026-09-24 重构:落盘收敛到 _save(与 remove 共用)
+
+    # 2026-09-24 补齐(vesta 对齐):规则查看/删除——GUI 与 CLI 此前都只能"写"不能"改",
+    # 固化错了的 ALLOW/DENY 只能手编 json;补 /permissions 命令的管理面
+    def list_rules(self) -> list[Rule]:
+        return list(self.user_rules)
+
+    def remove(self, index: int) -> Rule | None:
+        """删除第 index 条用户规则(0 起)并落盘;越界返回 None。"""
+        if 0 <= index < len(self.user_rules):
+            rule = self.user_rules.pop(index)
+            self._save()
+            return rule
+        return None
+
+    def _save(self) -> None:
         self.rules_file.parent.mkdir(parents=True, exist_ok=True)
         data = {"rules": [
             {"tool": r.tool, "pattern": r.pattern, "verdict": r.verdict} for r in self.user_rules
@@ -130,7 +146,28 @@ class ApprovalGate:
             return False
         if verdict == ALLOW:
             return True
-        return await self.ask(tool, args)
+        answer = await self.ask(tool, args)
+        # 2026-09-24 补齐(vesta 对齐):ask 可返回丰富判定 str——
+        # once=本次 / session=本会话 / always=固化 ALLOW 规则 / never=固化 DENY 规则 / deny=本次拒绝;
+        # 兼容旧 bool 子类(True≈once / False≈deny),StubGate 等测试桩不用改
+        if isinstance(answer, bool):
+            return answer
+        if answer == "once":
+            return True
+        if answer == "session":
+            pattern = f"{str(args.get('command', '')).split()[0]} *" if tool == "bash" else None
+            self.memory.allow(tool, pattern)
+            return True
+        if answer == "always":
+            pattern = f"{str(args.get('command', '')).split()[0]} *" if tool == "bash" else None
+            self.engine.add(Rule(tool, pattern, ALLOW))
+            return True
+        if answer == "never":
+            # 2026-09-24 新增:拒绝方向固化(此前只能固化允许——误放行的工具没法拉黑)
+            pattern = f"{str(args.get('command', '')).split()[0]} *" if tool == "bash" else None
+            self.engine.add(Rule(tool, pattern, DENY))
+            return False
+        return False  # deny 及一切未识别值(fail-closed)
 
     async def ask(self, tool: str, args: dict) -> bool:
         raise NotImplementedError
@@ -139,11 +176,14 @@ class ApprovalGate:
 class ConsoleApprovalGate(ApprovalGate):
     """终端审批门:三选项 + 未识别输入按拒绝(fail-closed)。阻塞 input 经 to_thread 不卡事件循环。"""
 
-    async def ask(self, tool: str, args: dict) -> bool:
+    async def ask(self, tool: str, args: dict) -> str | bool:
         preview = tool if tool != "bash" else f"bash: {args.get('command', '')[:120]}"
+        # 2026-09-24 补齐:加 [4] 总是拒绝(固化 DENY)——此前拒绝方向只能一次性,
+        # 误放行(如某危险 bash 前缀)没法拉黑;/permissions 可删规则
         tip = (
             f"\n⚠️  otter 请求执行 [{preview}]\n"
-            f"   [1] 本次允许  [2] 本会话都允许  [3] 总是允许(写入规则)  [4] 拒绝 > "
+            f"   [1] 本次允许  [2] 本会话都允许  [3] 总是允许(写规则)\n"
+            f"   [4] 总是拒绝(写规则)  [5] 本次拒绝 > "
         )
         try:
             answer = await asyncio.to_thread(input, tip)
@@ -152,32 +192,94 @@ class ConsoleApprovalGate(ApprovalGate):
             # CI 需要执行 bash 时用 -p --yes 或 ~/.otter/permissions.json 预授权
             return False
         answer = answer.strip()
-        if answer == "1":
-            return True
-        if answer == "2":
-            pattern = f"{str(args.get('command', '')).split()[0]} *" if tool == "bash" else None
-            self.memory.allow(tool, pattern)
-            return True
-        if answer == "3":
-            pattern = f"{str(args.get('command', '')).split()[0]} *" if tool == "bash" else None
-            self.engine.add(Rule(tool, pattern, ALLOW))
-            return True
-        return False  # 含未识别输入:一律拒绝
+        # 2026-09-24 重构:判定分流收敛到基类 resolve(ask 只报意图,不再自行固化规则)
+        return {"1": "once", "2": "session", "3": "always", "4": "never"}.get(answer, "deny")
 
 
 class WebApprovalGate(ApprovalGate):
-    """GUI 审批门(M2 简版):evaluate_js 同步等 confirm() 返回值。"""
+    """GUI 审批门(2026-09-24 升级:confirm() 二态 → 独立四按钮审批窗)。
+
+    此前 GUI 只有"允许/拒绝"二态,GUI 用户永远无法固化规则(只有 CLI 能写
+    permissions.json)——权限规则持久化在 GUI 侧断头(vesta 对齐轮补齐)。
+    实现复刻 gui._diffwin_ask 的成熟模式:临时 html + create_window + js_api
+    回调记结果 + 轮询等待 + 代际计数防重入串线。窗创建失败回退 confirm()。
+    """
+
+    _gen = 0  # 类级代际计数(防上一轮弹窗未处理时新旧结果串线,diffwin 同款)
 
     def __init__(self, engine: PermissionEngine, memory: SessionMemory, window) -> None:
         super().__init__(engine, memory)
         self.window = window
 
-    async def ask(self, tool: str, args: dict) -> bool:
-        preview = tool if tool != "bash" else str(args.get("command", ""))[:120]
+    async def ask(self, tool: str, args: dict) -> str | bool:
+        preview = tool if tool != "bash" else str(args.get("command", ""))[:200]
         try:
-            return bool(await asyncio.to_thread(
-                self.window.evaluate_js,
-                f'confirm("otter 请求执行:\\n{json.dumps(preview, ensure_ascii=False)}\\n\\n允许?")',
-            ))
+            return await asyncio.to_thread(self._askwin, preview, tool)
         except Exception:
-            return False  # 窗口异常:拒绝(fail-closed)
+            # 弹窗异常:回退主窗 confirm()(再失败由调用方 fail-closed)
+            try:
+                return bool(await asyncio.to_thread(
+                    self.window.evaluate_js,
+                    f'confirm("otter 请求执行:\\n{json.dumps(preview, ensure_ascii=False)}\\n\\n允许?")',
+                ))
+            except Exception:
+                return False
+
+    def _askwin(self, preview: str, tool: str, timeout_s: float = 300.0) -> str:
+        """独立四按钮审批窗(工作线程内跑):本次允许/总是允许/总是拒绝/拒绝。"""
+        import tempfile
+        import time as _time
+        import webview
+
+        WebApprovalGate._gen += 1
+        gen = WebApprovalGate._gen
+        result = {"v": None}
+
+        doc = f"""<!doctype html><html><head><meta charset="utf-8"><title>权限确认</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{background:#f3f5f9;color:#182233;font-family:-apple-system,"PingFang SC",sans-serif;
+     display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:16px}}
+.icon{{font-size:28px;margin-bottom:10px}}
+.q{{font-size:13px;font-weight:600;text-align:center;margin-bottom:16px;line-height:1.5;
+    word-break:break-all;max-width:100%}}
+.small{{font-size:10.5px;color:#8490a1;font-weight:400;margin-top:6px}}
+.grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}}
+button{{border:none;border-radius:8px;padding:9px 0;font:600 12px inherit;cursor:pointer}}
+.ok{{background:#4f73d9;color:#fff}} .no{{background:#c95555;color:#fff}}
+</style></head><body>
+<div class="icon">🦦</div>
+<div class="q">otter 请求执行<div class="small">{preview}</div></div>
+<div class="grid">
+<button class="ok" onclick="pywebview.api.verdict('once')">本次允许</button>
+<button class="ok" onclick="pywebview.api.verdict('always')">总是允许(写规则)</button>
+<button class="no" onclick="pywebview.api.verdict('never')">总是拒绝(写规则)</button>
+<button class="no" onclick="pywebview.api.verdict('deny')">本次拒绝</button>
+</div>
+</body></html>"""
+        tmp = tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8")
+        tmp.write(doc)
+        tmp.close()
+
+        class AskApi:
+            def verdict(self, v):
+                result["v"] = v  # 只记结果;窗口由 _askwin 收尾统一销毁(diffwin 同款)
+
+        try:
+            w = webview.create_window(
+                "otter 权限确认", url=f"file://{tmp.name}", width=340, height=240,
+                js_api=AskApi())
+        except Exception:
+            return "deny"  # 窗创建失败:fail-closed
+
+        deadline = _time.monotonic() + timeout_s
+        while _time.monotonic() < deadline:
+            if gen != WebApprovalGate._gen or result["v"] is not None:
+                break
+            _time.sleep(0.1)
+        try:
+            w.destroy()
+        except Exception:
+            pass
+        # 超时/被新窗顶替 = 拒绝(fail-closed);never 由基类 resolve 固化为 DENY 规则
+        return result["v"] or "deny"

@@ -68,3 +68,52 @@ def test_html_to_text():
     assert "标题" in text and "第一段 & 实体" in text and "第二段" in text
     assert "alert" not in text and "页脚" not in text  # script/footer 剥除
     assert "<" not in text and "&amp;" not in text      # 标签与实体已清
+
+
+# ── 2026-09-24 web_search:DDG Lite 解析(纯函数,离线) ──────────────
+
+def test_parse_lite_results_and_uddg_cleanup():
+    """DDG Lite HTML fixture:链接/摘要按序配对,uddg 重定向清洗,截断生效。"""
+    from otter.tools.general import parse_lite_results
+
+    html = """
+    <table>
+    <tr><td class='result-snippet'>摘要A 内容</td></tr>
+    <tr><td><a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.com%2Fx&rut=1">标题A</a></td></tr>
+    <tr><td class='result-snippet'>摘要B 内容</td></tr>
+    <tr><td><a rel="nofollow" href="https://b.com/y">标题B</a></td></tr>
+    <tr><td><a rel="nofollow" href="javascript:alert(1)">坏链接</a></td></tr>
+    </table>
+    """
+    rs = parse_lite_results(html, max_results=5)
+    # 注意:DDG Lite 页面结构为 链接行在摘要行之前;本 fixture 故意倒序以验证"按序配对"
+    # (解析器不依赖行序,只按出现顺序对齐 links[i]↔snippets[i])
+    urls = [r["url"] for r in rs]
+    assert "https://a.com/x" in urls            # uddg 已解包
+    assert "https://b.com/y" in urls
+    assert all(u.startswith(("http://", "https://")) for u in urls)  # javascript: 已滤
+    assert rs[0]["snippet"]                      # 摘要按序配对(非空)
+
+
+def test_websearch_tool_via_injected_fetcher():
+    """注入 fetcher(离线):正常结果格式 / 空结果降级文案。"""
+    import asyncio
+
+    from otter.tools.general import WebSearchTool
+
+    tool = WebSearchTool()
+    tool._fetcher = lambda q: _fake_fetch(q)
+
+    async def _fake_fetch(q):
+        return ("<a rel='nofollow' href='https://x.com/1'>结果1</a>"
+                "<td class='result-snippet'>片段1</td>")
+
+    out = asyncio.run(tool.run({"query": "测试"}))
+    assert "结果1" in out and "https://x.com/1" in out and "片段1" in out
+
+    async def _empty_fetch(q):
+        return "<html>empty</html>"
+
+    tool._fetcher = _empty_fetch
+    out = asyncio.run(tool.run({"query": "测试"}))
+    assert "无搜索结果" in out                    # 如实降级,不编造

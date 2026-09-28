@@ -49,7 +49,7 @@ def test_gate_deny_via_rule_and_session_memory(tmp_path: Path):
     class StubGate(ApprovalGate):
         async def ask(self, tool, args):
             calls["asked"] += 1
-            return False  # 模拟用户拒绝
+            return False  # 模拟用户拒绝(bool 兼容旧协议)
 
     gate = StubGate(engine, memory)
     # 2026-09-23:bash 已改为 ALLOW(用户要求全放行)——此测试改用 DENY 规则验证拒绝链路
@@ -59,6 +59,53 @@ def test_gate_deny_via_rule_and_session_memory(tmp_path: Path):
     memory.allow("bash", "ls *")  # 会话记忆:ls 放行
     assert asyncio.run(gate.resolve("bash", {"command": "ls -la"})) is True
     assert calls["asked"] == 0  # bash 本身 ALLOW + 记忆命中,也不进交互
+
+
+# ── 2026-09-24 补齐:丰富判定 / never 固化 / 规则管理面 ──────────────
+
+def test_gate_rich_verdicts_persist(tmp_path: Path):
+    """ask 返回 str 判定:always/never 固化落盘,session 进记忆,once/deny 一次性。
+
+    注意:always/never 固化后,同一工具的后续 resolve 被规则直接短路,不再进 ask
+    (因此按工具名分发判定,而非顺序消费)。"""
+    f = tmp_path / "permissions.json"
+    engine = PermissionEngine(rules_file=f)
+    asked: list[str] = []
+    answers = {"t_always": "always", "t_never": "never", "t_session": "session",
+               "t_once": "once", "t_deny": "deny"}
+
+    class RichGate(ApprovalGate):
+        async def ask(self, tool, args):
+            asked.append(tool)
+            return answers[tool]
+
+    gate = RichGate(engine, SessionMemory())
+    r = lambda t: asyncio.run(gate.resolve(t, {}))
+    assert r("t_always") is True and r("t_never") is False    # always/never 固化
+    assert r("t_session") is True and r("t_once") is True and r("t_deny") is False
+    assert asked == ["t_always", "t_never", "t_session", "t_once", "t_deny"]
+    # 二次调用:规则/记忆短路,不进 ask,结果与固化一致
+    assert r("t_always") is True and r("t_never") is False and r("t_session") is True
+    assert asked.count("t_always") == 1 and asked.count("t_never") == 1
+    # 固化已落盘:新引擎重载即生效
+    engine2 = PermissionEngine(rules_file=f)
+    assert engine2.decide("t_always", {}) == ALLOW
+    assert engine2.decide("t_never", {}) == DENY
+
+
+def test_engine_list_and_remove(tmp_path: Path):
+    """规则管理面:list_rules / remove 落盘且越界安全(/permissions 命令的底座)。"""
+    f = tmp_path / "permissions.json"
+    engine = PermissionEngine(rules_file=f)
+    engine.add(Rule("bash", "pip *", ALLOW))
+    engine.add(Rule("bash", "rm *", DENY))
+    assert [r.verdict for r in engine.list_rules()] == [ALLOW, DENY]
+    removed = engine.remove(0)
+    assert (removed.tool, removed.pattern, removed.verdict) == ("bash", "pip *", ALLOW)
+    assert engine.remove(99) is None                       # 越界安全
+    assert [r.verdict for r in engine.list_rules()] == [DENY]
+    engine2 = PermissionEngine(rules_file=f)               # 重载:删除已落盘
+    assert [r.verdict for r in engine2.list_rules()] == [DENY]
 
 
 # ── 沙箱 ──────────────────────────────────────────────────────────

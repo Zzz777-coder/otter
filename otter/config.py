@@ -40,7 +40,7 @@ class Config:
     summary_model: str = ""        # 摘要模型(空=复用 main 模型)
     git_auto: bool = True          # 写类工具成功后自动 git commit
     sandbox: str = "off"           # 2026-09-23 用户要求:agent 可访问任意路径,沙箱默认关闭
-    run_budget: int = 300_000      # Run 级费用预算(计费 token:input+output;0=禁用)——2026-09-22 补装
+    run_budget: int = 3_000_000    # 2026-09-24 用户要求扩大(300k 真实长任务频繁硬停;10 倍至 3M,0=禁用)
     # ── 2026-09-24 新增:Anthropic 原生 adapter 配置 ──
     provider: str = "auto"         # auto=按 base_url 判定;可显式 anthropic / openai
     max_tokens: int = 8192         # Anthropic max_tokens 必填(OpenAI 层忽略此值)
@@ -59,7 +59,7 @@ class Config:
             summary_model=os.environ.get("OTTER_SUMMARY_MODEL", ""),
             git_auto=os.environ.get("OTTER_GIT_AUTO", "1") not in ("0", "false", "no"),
             sandbox=os.environ.get("OTTER_SANDBOX", "on"),
-            run_budget=int(os.environ.get("OTTER_RUN_BUDGET", "300000")),
+            run_budget=int(os.environ.get("OTTER_RUN_BUDGET", "3000000")),  # 2026-09-24:默认扩至 3M
             provider=os.environ.get("OTTER_PROVIDER", "auto"),
             max_tokens=int(os.environ.get("OTTER_MAX_TOKENS", "8192")),
         )
