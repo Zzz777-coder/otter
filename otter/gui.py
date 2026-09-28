@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260924u"  # 20260924u:新建/打开工作区(下拉末尾入口+目录选择框;index.html ?v= 同步)
+WEB_BUILD = "20260928a"  # 20260928a:会话单个删除(悬停✕+确认;index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -374,6 +374,33 @@ class OtterWebGui:
                 print(f"[switch] switched to {cid} via {path}, history={len(gui.history)}", flush=True)
                 fut = asyncio.run_coroutine_threadsafe(gui._conv_payload(), gui.loop)
                 gui._js("onConversations", fut.result(timeout=5))
+
+            def delete_conversation(self, cid: int):
+                """删除单个会话(2026-09-28 用户要求):删库+清缓存;删的是当前
+                会话时现场一并复位(等价于"新建"),并回推会话列表。"""
+                async def _do_delete():
+                    if gui.store is None:
+                        return
+                    deleted = await gui.store.delete_conversation(cid)
+                    gui.session_cache.pop(cid, None)
+                    if gui.current_cid == cid:
+                        # 删的是正在看的会话:清空对话区,回到待机态
+                        gui.current_cid = None
+                        gui.history = []
+                        gui.summary_state = None
+                        gui._js("onHistory", [])
+                        gui._js("onConversations", await gui._conv_payload())
+                        gui._js("onMode", {"mode": gui.mode})
+                        gui._js("onDone", {"summary": "会话已删除", "final_text": ""})
+                    elif deleted:
+                        gui._js("onConversations", await gui._conv_payload())
+                    return deleted
+
+                fut = asyncio.run_coroutine_threadsafe(_do_delete(), gui.loop)
+                try:
+                    return fut.result(timeout=5)
+                except Exception:
+                    return False
 
             def get_runs(self):
                 # 2026-09-24 最近工作区:历史页按查看根(view_root)读,默认=启动目录

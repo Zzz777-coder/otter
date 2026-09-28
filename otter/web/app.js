@@ -592,7 +592,17 @@ function renderConvs(convs) {
     const sub = document.createElement("div");
     sub.className = "conv-sub";
     sub.textContent = c.sub || "";
-    div.append(t, sub);
+    // 2026-09-28 会话单个删除:悬停显示 ✕,确认后经桥删库(当前会话删除=回到待机态)
+    const del = document.createElement("div");
+    del.className = "conv-del";
+    del.textContent = "✕";
+    del.title = "删除此会话";
+    del.onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm(`删除会话「${c.title || "会话 #" + c.id}」?此操作不可恢复。`)) return;
+      await window.pywebview.api.delete_conversation(c.id);
+    };
+    div.append(t, sub, del);
     div.onclick = () => window.pywebview.api.switch_conversation(c.id);
     list.appendChild(div);
   }

@@ -157,6 +157,17 @@ class Store:
         return [{"id": r[0], "title": r[1], "updated_at": r[2], "rounds": r[3]}
                 for r in await cursor.fetchall()]
 
+    async def delete_conversation(self, cid: int) -> bool:
+        """删除单个会话(2026-09-28 用户要求,对齐参考实现):conversations 行 +
+        该会话 messages 级联删;events/runs 属 Run 级审计数据保留(历史页的
+        "无会话 Run"兜底组会接住,现有聚合逻辑兼容)。返回是否实际删除。"""
+        cur = await self._db.execute(
+            "DELETE FROM conversations WHERE id=?", (cid,))
+        await self._db.execute(
+            "DELETE FROM messages WHERE conversation_id=?", (cid,))
+        await self._db.commit()
+        return cur.rowcount > 0
+
     async def touch_conversation(self, cid: int, title: str | None = None) -> None:
         """更新会话活跃时间;给标题则一并更新(首条消息落库时定标题用)。"""
         if title:

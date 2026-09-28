@@ -58,3 +58,34 @@ def test_append_message_without_conversation_backcompat(tmp_path: Path):
         await db.close()
 
     asyncio.run(scenario())
+
+
+# ── 2026-09-28 会话单个删除 ────────────────────────────────────────
+
+def test_delete_conversation_cascades(tmp_path):
+    """删会话=行+消息级联删;不存在的 cid 返回 False;events 保留(Run 审计)。"""
+    import asyncio
+
+    from otter.models.types import Message
+    from otter.store import Store
+
+    async def main():
+        s = Store(tmp_path / "t.db")
+        await s.open()
+        cid = await s.new_conversation("要删的")
+        keep = await s.new_conversation("要留的")
+        rid = await s.new_run()
+        await s.append_message(Message(role="user", content="hi"), 0, rid, cid)
+        await s.touch_conversation(cid)
+        assert await s.delete_conversation(cid) is True
+        assert await s.delete_conversation(cid) is False            # 二次删=False
+        assert await s.delete_conversation(99999) is False
+        titles = [c["title"] for c in await s.list_conversations()]
+        assert titles == ["要留的"]
+        # 消息级联删:残留消息不挂在已删会话上
+        rows = await s.load_conversation_messages(cid)
+        assert rows == []
+        assert await s.load_conversation_messages(keep) == []       # 未动其他会话
+        await s.close()
+
+    asyncio.run(main())

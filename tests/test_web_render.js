@@ -483,6 +483,27 @@ check("R5 再点收起", cardsInThread() === r5Base);
   check("取消选择提示「已取消选择」", String(statusEl.textContent).includes("已取消选择"));
   global.window.pywebview.api.get_runs = _getRuns;  // 还原
 
+  // 7z) 2026-09-28 会话删除按钮:渲染出 .conv-del;确认后调 delete_conversation,
+  //     取消不调;点击不冒泡到行切换(stopPropagation 被调用)
+  {
+    const delList = new El("div");
+    document.querySelector = (sel) =>
+      sel === "#convSearch" ? searchEl : sel === "#convList" ? delList :
+      sel === "#statusbar" ? statusEl : new El("div");
+    global.otterUI.onConversations([{ id: 7, title: "待删会话", active: false, sub: "" }]);
+    const item = delList.children[0];
+    const delBtn = item.children.find((c) => c._cl && c._cl.has("conv-del"));
+    check("会话项渲染删除按钮(.conv-del)", !!delBtn);
+    let delCalls = [], stopCalled = false;
+    global.window.pywebview.api.delete_conversation = async (cid) => { delCalls.push(cid); return true; };
+    global.confirm = () => false;
+    await delBtn.onclick({ stopPropagation: () => { stopCalled = true; } });
+    check("确认框取消时不删除", delCalls.length === 0 && stopCalled === true);
+    global.confirm = () => true;
+    await delBtn.onclick({ stopPropagation: () => { stopCalled = true; } });
+    check("确认后调用 delete_conversation(7)", delCalls.length === 1 && delCalls[0] === 7);
+  }
+
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);
   process.exit(failures === 0 ? 0 : 1);
 })();
