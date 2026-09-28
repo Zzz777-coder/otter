@@ -178,7 +178,7 @@ class Store:
         return cur.rowcount > 0
 
     async def delete_conversation(self, cid: int) -> bool:
-        """删除单个会话(2026-09-28 用户要求,对齐参考实现):conversations 行 +
+        """删除单个会话(2026-09-28 用户要求):conversations 行 +
         该会话 messages 级联删;events/runs 属 Run 级审计数据保留(历史页的
         "无会话 Run"兜底组会接住,现有聚合逻辑兼容)。返回是否实际删除。"""
         cur = await self._db.execute(

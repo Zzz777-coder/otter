@@ -1,6 +1,6 @@
 """分层指令文件(M1):AGENTS.md / CLAUDE.md 兼容加载 + /init 确定性生成。
 
-设计对齐行业共识(Claude Code 的 CLAUDE.md、Codex 的 AGENTS.md、Gemini 的 GEMINI.md 同构):
+设计对齐业界主流 agent 工具的同构惯例(项目根说明文件,多名并存):
 - 加载顺序:~/.otter/AGENTS.md(用户级)→ ./AGENTS.md 或 ./CLAUDE.md(项目级,前者优先),拼接注入 system;
 - /init 不调模型:确定性扫描项目结构生成模板(确定性优先,不花 token)。
 """

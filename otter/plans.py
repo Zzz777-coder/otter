@@ -30,7 +30,7 @@ def _plans_root() -> Path:
 
 
 def save_plan(task: str, plan_text: str) -> Path:
-    """计划落盘(学 Claude Code 的 plan file):plan-<N>.md,front matter 记任务原文。"""
+    """计划落盘(plan file 模式):plan-<N>.md,front matter 记任务原文。"""
     existing = sorted(_plans_root().glob("plan-*.md"))
     n = max((int(p.stem.split("-")[1]) for p in existing), default=0) + 1
     path = _plans_root() / f"plan-{n:03d}.md"

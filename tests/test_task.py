@@ -33,7 +33,7 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-# ── 模型不变量(移植 上游 校验语义) ────────────────────────────────
+# ── 模型不变量(校验语义回归) ────────────────────────────────
 
 def _mk_task(**overrides) -> Task:
     now_base = overrides.pop("now", None)
@@ -202,7 +202,7 @@ def test_render_task_context_budget():
                     constraints=(f"约束{i}" for i in range(20)))
     text = render_task_context(task)
     payload = json.loads(text.split("<active_task>")[1].rstrip("</active_task>"))
-    # done 只留近 3、待办截 12、列表截 12(上游 预算口径)
+    # done 只留近 3、待办截 12、列表截 12(渲染预算口径)
     assert payload["omitted_done_steps"] == 3
     assert payload["omitted_pending_steps"] == 3
     assert payload["omitted_entries"]["key_facts"] == 8
