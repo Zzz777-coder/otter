@@ -420,7 +420,7 @@ async def run_repl(loop: AgentLoop, store, max_steps: int) -> None:
             continue
         if prompt.startswith("/permissions"):
             # 2026-09-24 补齐:权限规则管理面——查看/删除固化规则;
-            # 此前规则只能经审批"[3]总是允许"写入,写错了只能手编 ~/.otter/permissions.json
+            # 此前拒绝规则只能经审批"[3]总是拒绝"写入,写错了只能手编 ~/.otter/permissions.json
             # 用 loop 上挂的同一 engine 对象:删除对当前会话立即生效
             # (若 --yes 模式无审批门,则临时构造仅读同一规则文件)
             engine = loop.approval_gate.engine if loop.approval_gate is not None else None

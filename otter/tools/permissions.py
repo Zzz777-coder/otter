@@ -2,8 +2,8 @@
 
 权限策略思想(未命中=ASK、DENY 优先、
 规则可固化),全部重新实现:
-- 规则来源:内置默认表 → 用户规则文件(~/.otter/permissions.json,审批"总是允许"落盘)
-  → 会话记忆(审批"本次会话都允许",进程内);
+- 规则来源:内置默认表 → 用户规则文件(~/.otter/permissions.json,仅"总是拒绝"落盘)
+  → 会话记忆(审批允许类,进程内;2026-09-28 起 allow 不再固化,授权上限=会话级);
 - 判定顺序:显式规则(含命令前缀匹配)优先于默认表;同工具多条冲突时 DENY > ALLOW > ASK;
 - 未命中任何规则 = ASK(fail-closed 的第一道);
 - 审批交互:ConsoleApprovalGate(终端三选项,未识别输入按拒绝 = fail-closed 第二道)。
@@ -83,7 +83,7 @@ class PermissionEngine:
             return []  # 规则文件损坏:退回内置默认(fail-closed 方向)
 
     def add(self, rule: Rule) -> None:
-        """审批"总是允许/拒绝"时落盘固化(批准可固化为规则)。"""
+        """审批"总是拒绝"时落盘固化(2026-09-28 起 allow 不落盘,仅拒绝固化)。"""
         self.user_rules.append(rule)
         self._save()  # 2026-09-24 重构:落盘收敛到 _save(与 remove 共用)
 
@@ -159,8 +159,10 @@ class ApprovalGate:
             self.memory.allow(tool, pattern)
             return True
         if answer == "always":
+            # 2026-09-28 用户要求:允许类授权上限收敛到会话级——always 不再落盘固化,
+            # 与 session 同效(重启即重新询问);拒绝方向(never)仍可固化拉黑
             pattern = f"{str(args.get('command', '')).split()[0]} *" if tool == "bash" else None
-            self.engine.add(Rule(tool, pattern, ALLOW))
+            self.memory.allow(tool, pattern)
             return True
         if answer == "never":
             # 2026-09-24 新增:拒绝方向固化(此前只能固化允许——误放行的工具没法拉黑)
@@ -178,12 +180,12 @@ class ConsoleApprovalGate(ApprovalGate):
 
     async def ask(self, tool: str, args: dict) -> str | bool:
         preview = tool if tool != "bash" else f"bash: {args.get('command', '')[:120]}"
-        # 2026-09-24 补齐:加 [4] 总是拒绝(固化 DENY)——此前拒绝方向只能一次性,
-        # 误放行(如某危险 bash 前缀)没法拉黑;/permissions 可删规则
+        # 2026-09-24 补齐:加"总是拒绝"(固化 DENY)——拒绝方向可拉黑;
+        # 2026-09-28 用户要求:去掉"总是允许"(授权上限=会话级,不落盘)
         tip = (
             f"\n⚠️  otter 请求执行 [{preview}]\n"
-            f"   [1] 本次允许  [2] 本会话都允许  [3] 总是允许(写规则)\n"
-            f"   [4] 总是拒绝(写规则)  [5] 本次拒绝 > "
+            f"   [1] 本次允许  [2] 本会话都允许\n"
+            f"   [3] 总是拒绝(写规则)  [4] 本次拒绝 > "
         )
         try:
             answer = await asyncio.to_thread(input, tip)
@@ -193,7 +195,8 @@ class ConsoleApprovalGate(ApprovalGate):
             return False
         answer = answer.strip()
         # 2026-09-24 重构:判定分流收敛到基类 resolve(ask 只报意图,不再自行固化规则)
-        return {"1": "once", "2": "session", "3": "always", "4": "never"}.get(answer, "deny")
+        # 2026-09-28:菜单去 always;旧输入 [3] 一律按 session 处理(向上兼容误输)
+        return {"1": "once", "2": "session", "3": "session", "4": "never"}.get(answer, "deny")
 
 
 class WebApprovalGate(ApprovalGate):
@@ -226,7 +229,7 @@ class WebApprovalGate(ApprovalGate):
                 return False
 
     def _askwin(self, preview: str, tool: str, timeout_s: float = 300.0) -> str:
-        """独立四按钮审批窗(工作线程内跑):本次允许/总是允许/总是拒绝/拒绝。"""
+        """独立四按钮审批窗(工作线程内跑):本次允许/本会话允许/总是拒绝/拒绝。"""
         import tempfile
         import time as _time
         import webview
@@ -252,7 +255,7 @@ button{{border:none;border-radius:8px;padding:9px 0;font:600 12px inherit;cursor
 <div class="q">otter 请求执行<div class="small">{preview}</div></div>
 <div class="grid">
 <button class="ok" onclick="pywebview.api.verdict('once')">本次允许</button>
-<button class="ok" onclick="pywebview.api.verdict('always')">总是允许(写规则)</button>
+<button class="ok" onclick="pywebview.api.verdict('session')">本会话允许</button>
 <button class="no" onclick="pywebview.api.verdict('never')">总是拒绝(写规则)</button>
 <button class="no" onclick="pywebview.api.verdict('deny')">本次拒绝</button>
 </div>

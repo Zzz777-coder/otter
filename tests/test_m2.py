@@ -64,9 +64,10 @@ def test_gate_deny_via_rule_and_session_memory(tmp_path: Path):
 # ── 2026-09-24 补齐:丰富判定 / never 固化 / 规则管理面 ──────────────
 
 def test_gate_rich_verdicts_persist(tmp_path: Path):
-    """ask 返回 str 判定:always/never 固化落盘,session 进记忆,once/deny 一次性。
+    """ask 返回 str 判定:2026-09-28 起 always 并入会话记忆(不落盘);
+    never 仍固化;once/deny 一次性。
 
-    注意:always/never 固化后,同一工具的后续 resolve 被规则直接短路,不再进 ask
+    注意:always/never 生效后,同一工具的后续 resolve 被短路,不再进 ask
     (因此按工具名分发判定,而非顺序消费)。"""
     f = tmp_path / "permissions.json"
     engine = PermissionEngine(rules_file=f)
@@ -87,9 +88,10 @@ def test_gate_rich_verdicts_persist(tmp_path: Path):
     # 二次调用:规则/记忆短路,不进 ask,结果与固化一致
     assert r("t_always") is True and r("t_never") is False and r("t_session") is True
     assert asked.count("t_always") == 1 and asked.count("t_never") == 1
-    # 固化已落盘:新引擎重载即生效
+    # 2026-09-28 用户要求:allow 不落盘——新引擎重载后 t_always 回到 ASK(未命中默认表);
+    # never 拒绝固化保留
     engine2 = PermissionEngine(rules_file=f)
-    assert engine2.decide("t_always", {}) == ALLOW
+    assert engine2.decide("t_always", {}) == ASK
     assert engine2.decide("t_never", {}) == DENY
 
 
