@@ -517,7 +517,8 @@ check("R5 再点收起", cardsInThread() === r5Base);
       sel === "#statusbar" ? statusEl : new El("div");
     global.otterUI.onConversations([{ id: 9, title: "可置顶会话", active: false, sub: "", pinned: false }]);
     const item = menuList.children[0];
-    const items = item.children.filter((c) => c._cl && c._cl.has("conv-menu-item"));
+    const menu2 = item.children.find((c) => c._cl && c._cl.has("conv-menu"));
+    const items = menu2.children.filter((c) => c._cl && c._cl.has("conv-menu-item"));
     check("菜单含三项(置顶/重命名/删除)", items.length === 3);
     const pinItem = items[0], renameItem = items[1];
     check("未置顶时菜单显示「置顶」", String(pinItem.textContent) === "置顶");
@@ -527,15 +528,17 @@ check("R5 再点收起", cardsInThread() === r5Base);
     check("点置顶调 pin_conversation(9,true)", pinCalls.length === 1
       && pinCalls[0][0] === 9 && pinCalls[0][1] === true);
     global.otterUI.onConversations([{ id: 9, title: "可置顶会话", active: false, sub: "", pinned: true }]);
-    const items2 = menuList.children[0].children.filter((c) => c._cl && c._cl.has("conv-menu-item"));
+    const menu3 = menuList.children[0].children.find((c) => c._cl && c._cl.has("conv-menu"));
+    const items2 = menu3.children.filter((c) => c._cl && c._cl.has("conv-menu-item"));
     check("已置顶时菜单显示「取消置顶」+标题带📌",
       String(items2[0].textContent) === "取消置顶"
       && String(menuList.children[0].querySelector(".conv-title").textContent).startsWith("📌"));
-    // 重命名:内联输入,Enter 提交调 rename_conversation;Esc 还原
-    let renCalls = [], rendered = false;
+    // 重命名:内联输入,Enter 提交调 rename_conversation(用第二次渲染的菜单项,
+    // 此前误用第一次渲染的 renameItem——闭包改的是旧 DOM,新 item 里找不到输入框)
+    let renCalls = [];
     global.window.pywebview.api.rename_conversation = async (cid, v) => { renCalls.push([cid, v]); };
-    const lastConvsBackup = global.__exports;  // renderConvs 走 lastConvs——用真实回推验证
-    renameItem.onclick({ stopPropagation: () => {} });
+    const renameItem2 = items2[1];
+    renameItem2.onclick({ stopPropagation: () => {} });
     const input = menuList.children[0].children.find((c) => c._cl && c._cl.has("conv-rename"));
     check("点重命名出现内联输入框", !!input);
     input.value = "新名字";
