@@ -164,6 +164,12 @@ class Store:
         return [{"id": r[0], "title": r[1], "updated_at": r[2], "pinned": bool(r[3]), "rounds": r[4]}
                 for r in await cursor.fetchall()]
 
+    async def exists_conversation(self, cid: int) -> bool:
+        """会话存在性检查(2026-09-29 新增:HTTP API 层的 404 判定用,单行查询)。"""
+        cur = await self._db.execute(
+            "SELECT 1 FROM conversations WHERE id=?", (cid,))
+        return await cur.fetchone() is not None
+
     async def pin_conversation(self, cid: int, pinned: bool) -> bool:
         """置顶/取消置顶(2026-09-28 会话⋯菜单);不动 updated_at(排序位由 pinned 决定)。"""
         cur = await self._db.execute(

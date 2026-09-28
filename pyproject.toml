@@ -32,10 +32,14 @@ Homepage = "https://github.com/Zzz777-coder/otter"
 Issues = "https://github.com/Zzz777-coder/otter/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "httpx>=0.27", "fastapi>=0.115"]  # 2026-09-29 httpx+fastapi:TestClient 测试 API 层用
 gui = [
     "pywebview>=5",      # M4 起 GUI 为可选 extras:pip install otter-agent[gui]
     "pillow>=10",
+]
+server = [
+    "fastapi>=0.115",    # 2026-09-29 R1:本地 HTTP API(otter --serve)
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]

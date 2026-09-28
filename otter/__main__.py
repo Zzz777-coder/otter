@@ -39,7 +39,18 @@ def main() -> int:
                         help="-p 模式输出格式:json=收尾一次性;stream-json=NDJSON 流式逐事件(2026-09-24 新增)")
     parser.add_argument("--yes", action="store_true",
                         help="跳过审批交互全部允许(供 CI/headless;请确认任务可信,M2 新增)")
+    parser.add_argument("--serve", action="store_true",
+                        help="启动本地 HTTP API 服务(FastAPI,/docs 交互文档;2026-09-29 新增)")
+    parser.add_argument("--serve-port", type=int, default=8765,
+                        help="--serve 的端口(默认 8765;2026-09-29 新增)")
     args = parser.parse_args()
+
+    # 2026-09-29 HTTP API 模式:R1 仅会话/消息/事件的读写,不依赖模型 key,
+    # 故放在 api_key 检查之前分流;chat 类端点(R2)接入后再收紧
+    if args.serve:
+        from otter.api import serve
+
+        return serve(port=args.serve_port)
 
     config = Config.load()
     if args.model:
