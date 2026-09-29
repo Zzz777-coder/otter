@@ -45,7 +45,9 @@ class FakeAdapter:
 
 class FakeStore:
     def __init__(self) -> None:
-        self.events: list[str] = []
+        # 2026-09-29 压缩摘要卡配套:事件存 (type, payload) 元组——
+        # 压缩事件现在携带结构化 summary,断言需要读 payload
+        self.events: list[tuple[str, dict]] = []
 
     async def new_run(self):
         return 1
@@ -60,7 +62,7 @@ class FakeStore:
         pass  # M2:loop 新增落档调用,fake 兼容
 
     async def append_event(self, run_id, type_, payload):
-        self.events.append(type_)
+        self.events.append((type_, payload))  # 2026-09-29:payload 一并存(元组)
 
 
 class FakeSummarizer:
@@ -99,7 +101,12 @@ def test_rolling_summary_triggers_and_view_rebuilt():
     assert "<conversation_summary>" in view0["first_content"] and "继续完成示例任务" in view0["first_content"]
     assert view0["n_messages"] == 1 + (snapshot_len + 1 - state.covered)  # system + 未压缩尾部
     assert result.usage.input_tokens == 6  # 压缩调用(5) + 主调用(1) 都记账——压缩不免费
-    assert "CONTEXT_COMPACTED" in loop.store.events
+    assert "CONTEXT_COMPACTED" in [t for (t, _) in loop.store.events]
+    # 2026-09-29 压缩摘要卡(仿 codex):事件必须携带结构化摘要——GUI 据此渲染
+    # "已压缩的早期对话"卡;只有计数没有内容时界面只能给一行横线(用户否掉的形态)
+    cc = next(p for (t, p) in loop.store.events if t == "CONTEXT_COMPACTED")
+    assert cc["summary"]["current_objective"] == "继续完成示例任务"
+    assert cc["summary"]["completed_work"] == ["已读文件"]
 
 
 def test_plan_mode_whitelist_and_write_blocked():

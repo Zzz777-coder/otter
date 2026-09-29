@@ -154,6 +154,28 @@ body {
 .proc-log-head:hover { background: #f1f4fa; }
 .proc-log-body { display: none; padding: 2px 12px 8px; }
 .proc-log.open .proc-log-body { display: block; }
+
+/* 2026-09-29 压缩摘要卡(用户要求仿 codex):压缩产物分组 bullet 展示,不再一行横线 */
+.compact-card {
+  max-width: 650px; margin: 8px 0 14px; padding: 10px 14px 12px;
+  background: #fbfcfe; border: 1px solid #e0e6f0; border-radius: 10px;
+}
+.compact-head { display: flex; align-items: center; gap: 8px; }
+.compact-title { font-size: 12.5px; font-weight: 700; color: var(--text); }
+.compact-chip {
+  margin-left: auto; font-size: 10.5px; color: var(--muted);
+  background: #eef1f6; border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+}
+.compact-goal { margin-top: 7px; font-size: 12.5px; font-weight: 600; color: var(--text); }
+.compact-group { margin: 8px 0 2px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.compact-item {
+  display: flex; gap: 7px; margin-top: 3px;
+  font-size: 12.5px; line-height: 1.55; color: var(--text);
+}
+.compact-dot {
+  flex: none; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); margin-top: 7px;
+}
 .conv-title {
   font-weight: 600; color: var(--text); font-size: 12.5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

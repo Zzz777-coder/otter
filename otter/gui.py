@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260929b"  # 20260929b:step 行去横线,子代理只报关键动作(index.html ?v= 同步)
+WEB_BUILD = "20260929c"  # 20260929c:压缩显示改 codex 式摘要卡(事件带 summary+前端渲染)(index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -1321,6 +1321,29 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
         errs = bad_errors()
         if errs:
             step("  __errLog[FILE_CHANGED] 干净", False, errs)
+
+        # E. 压缩摘要卡(2026-09-29 用户要求仿 codex):CONTEXT_COMPACTED 带 summary →
+        #    真实跨桥渲染摘要卡;旧形态(无 summary)退回提示行不建卡。
+        #    #44 教训:跨桥契约改动必须真实 WKWebView DOM 断言,node 桩不替代。
+        emit_event("CONTEXT_COMPACTED", {
+            "covered": 14, "compressions": 2, "usage_in": 900, "usage_out": 200,
+            "summary": {"current_objective": "探针目标:验证压缩摘要卡渲染",
+                        "user_constraints": [], "key_decisions": ["改用分组 bullet 卡"],
+                        "completed_work": ["已定位压缩事件链路"],
+                        "pending_work": ["等待人工验收"], "important_facts": []}})
+        await asyncio.sleep(0.3)
+        step("CONTEXT_COMPACTED 渲染摘要卡",
+             str(js("document.querySelector('.compact-card') !== null")) in ("true", "True"))
+        step("摘要卡含当前目标与条目",
+             "探针目标:验证压缩摘要卡渲染" in str(js("document.querySelector('.compact-card')?.textContent || ''"))
+             and "已定位压缩事件链路" in str(js("document.querySelector('.compact-card')?.textContent || ''")))
+        emit_event("CONTEXT_COMPACTED", {"covered": 3, "compressions": 1, "usage_in": 5, "usage_out": 5})
+        await asyncio.sleep(0.3)
+        step("旧形态(无 summary)不建第二张卡",
+             str(js("document.querySelectorAll('.compact-card').length")) in ("1",))
+        errs = bad_errors()
+        if errs:
+            step("  __errLog[COMPACTED] 干净", False, errs)
 
         total = len(verdict)
         passed = sum(1 for _, ok in verdict if ok)

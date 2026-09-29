@@ -151,7 +151,9 @@ window.otterUI = {
     else if (type === "RUN_BUDGET_WARNING") { meta("system", `💰 预算提醒 ${p.used}/${p.budget} token`); }
     else if (type === "RUN_BUDGET_FINALIZING") { meta("system", "💰 预算收口:即将耗尽,已注入收口指令"); }
     else if (type === "RUN_BUDGET_EXCEEDED") { meta("err", `💰 预算硬停 ${p.used}/${p.budget} token`); }
-    else if (type === "CONTEXT_COMPACTED") { meta("system", `⇩ 上下文已压缩(第 ${p.compressions} 次,已覆盖 ${p.covered} 条)`); }
+    // 2026-09-29 用户要求(仿 codex 压缩展示):压缩不再缩成一行横线——渲染摘要卡,
+    // 把压缩产物(当前目标/已完成/待办等)直接展示给用户;无 summary 的旧事件退回提示行
+    else if (type === "CONTEXT_COMPACTED") { showCompactCard(p); }
     // 2026-09-23 常驻 PLAN 模式:计划产物落盘提示(loop 的 Plan Mode v2 既有事件)
     else if (type === "PLAN_RESULT") {
       if (p.valid && p.plan_file) meta("ok", `📋 计划已存盘:${p.plan_file}(切回 Act 后可要求按它执行)`);
@@ -476,6 +478,56 @@ async function toggleFilePreview(p, anchor) {
   anchor.parentNode.insertBefore(card, anchor.nextSibling);
   scrollBottom();
 }
+
+// ── 2026-09-29 压缩摘要卡(用户要求仿 codex「History from previous session」)──
+// 压缩发生时把结构化摘要(当前目标/用户约束/关键决策/已完成/待办/重要事实)
+// 渲染成分组 bullet 卡——压缩掉了什么对用户可见,不再是一行"已压缩"横线。
+// 事件缺 summary 字段(旧库回放/异常路径)时退回原一行提示。
+const COMPACT_GROUPS = [
+  ["user_constraints", "用户约束"], ["key_decisions", "关键决策"],
+  ["completed_work", "已完成"], ["pending_work", "待办"], ["important_facts", "重要事实"],
+];
+function showCompactCard(p) {
+  if (!p.summary || !p.summary.current_objective) {
+    meta("system", `⇩ 上下文已压缩(第 ${p.compressions} 次,已覆盖 ${p.covered} 条)`);  // 旧形态兼容
+    return;
+  }
+  const card = document.createElement("div");
+  card.className = "compact-card";
+  const head = document.createElement("div");
+  head.className = "compact-head";
+  const title = document.createElement("span");
+  title.className = "compact-title";
+  title.textContent = "⇩ 已压缩的早期对话";
+  const chip = document.createElement("span");
+  chip.className = "compact-chip";
+  chip.textContent = `第 ${p.compressions} 次 · 覆盖 ${p.covered} 条`;
+  head.append(title, chip);
+  const goal = document.createElement("div");
+  goal.className = "compact-goal";
+  goal.textContent = `🎯 当前目标:${p.summary.current_objective}`;
+  card.append(head, goal);
+  for (const [key, label] of COMPACT_GROUPS) {
+    const items = p.summary[key] || [];
+    if (!items.length) continue;
+    const g = document.createElement("div");
+    g.className = "compact-group";
+    g.textContent = label;
+    card.appendChild(g);
+    for (const it of items) {
+      const row = document.createElement("div");
+      row.className = "compact-item";
+      const dot = document.createElement("span");
+      dot.className = "compact-dot";
+      const txt = document.createElement("span");
+      txt.textContent = it;  // textContent 直写:摘要文本不进 innerHTML,天然防注入
+      row.append(dot, txt);
+      card.appendChild(row);
+    }
+  }
+  mountAboveThinking(card);  // #43:统一挂载(含悬空守卫)
+}
+
 
 // 2026-09-28 过程折叠块(用户定版:黄色工具行默认折叠,黑色正文保留):
 // tool(⚡ 黄)与 system(─ 灰)两类过程行聚合进块,标题可点开合;

@@ -458,6 +458,10 @@ class AgentLoop:
                 await self._emit(
                     run_id, "CONTEXT_COMPACTED",
                     {"covered": state.covered, "compressions": state.compressions,
+                     # 2026-09-29 压缩可视化(用户要求仿 codex):事件携带压缩产物的
+                     # 结构化内容(当前目标/已完成/待办等)——GUI 据此渲染"已压缩的
+                     # 早期对话"摘要卡,此前只有一行计数,压了什么用户看不见
+                     "summary": state.summary.model_dump() if state.summary else None,
                      # v0.3(2026-09-24):压缩调用的 usage 进事件——Trace 分账
                      # "summary"行数据源(:压缩不免费,账本须可见)
                      "usage_in": _cu.input_tokens if _cu else None,

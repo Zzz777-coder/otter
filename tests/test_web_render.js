@@ -239,6 +239,29 @@ const beforeDual = plogMetas();
 otterUI2.onEvent("RUN_BUDGET_WARNING", { used: 10, budget: 100 });
 check("#44 双参形态仍兼容", plogMetas() === beforeDual + 1);
 
+// 8c2. 压缩摘要卡(2026-09-29 用户要求仿 codex:压缩不再缩成一行横线):
+//      CONTEXT_COMPACTED 带 summary → 分组 bullet 卡;无 summary 旧形态 → 退回提示行
+//      (El 桩 textContent 不递归聚合子节点,自写 textOf 收集整卡文本)
+const textOf = (node) => {
+  let s = node.textContent || "";
+  for (const c of node.children || []) s += textOf(c);
+  return s;
+};
+otterUI2.onEvent({ type: "CONTEXT_COMPACTED", covered: 14, compressions: 2,
+  summary: { current_objective: "修复登录超时", completed_work: ["已定位 auth.py 根因"],
+             pending_work: ["补回归测试"], user_constraints: [], key_decisions: [], important_facts: [] } });
+const ccard = threadEl.children.find((c) => c._cl.has("compact-card"));
+check("CONTEXT_COMPACTED 渲染摘要卡(不再横线)", ccard !== undefined);
+check("摘要卡含当前目标", !!ccard && textOf(ccard).includes("修复登录超时"));
+check("摘要卡含已完成/待办条目", !!ccard && textOf(ccard).includes("已定位 auth.py 根因")
+      && textOf(ccard).includes("补回归测试"));
+check("摘要卡头含次数与覆盖数", !!ccard && textOf(ccard).includes("第 2 次") && textOf(ccard).includes("14"));
+const beforeCC = plogMetas();
+otterUI2.onEvent({ type: "CONTEXT_COMPACTED", covered: 3, compressions: 1 });
+check("旧形态(无 summary)退回提示行,不建卡",
+      threadEl.children.filter((c) => c._cl.has("compact-card")).length === 1
+      && plogMetas() === beforeCC + 1);
+
 // 8d. 悬空 thinkingEl 自愈(#43):onHistory 清屏(innerHTML="")后事件照常渲染
 otterUI2.onHistory([]);
 check("#43 onHistory 清屏后 thread 空", threadEl.children.length === 0);
