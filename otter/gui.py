@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260929f"  # 20260929f:会话产物胶囊(N个产物+面板)+链接行单击打开双击预览(index.html ?v= 同步)
+WEB_BUILD = "20260929g"  # 20260929g:过程线全会话唯一+文件统一收尾输出+右侧预览栏(index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -1055,8 +1055,12 @@ def _e2e_coroutine(gui: "OtterWebGui") -> None:
             w.destroy()
             return
 
-        async def submit_and_wait_diffwin(task, timeout_s=150):
-            """直连 api.submit + 轮询独立窗 diff 内容非空 + 秒表在走。"""
+        async def submit_and_wait_diffwin(task, timeout_s=150, want=""):
+            """直连 api.submit + 轮询独立窗 diff 内容非空 + 秒表在走。
+            want=目标文件名(判卡用,2026-09-29):确认窗文案不含文件名,探针此前
+            "见卡就点"——模型先跑 bash 探路时把 bash 确认卡当目标卡点掉,真正的
+            edit_file 卡无人点被代际顶替拒绝(连续两轮 5/8 假失败同模式)。改判
+            gate_session.last:探路 bash 卡点允许消掉继续等,目标写卡才返回。"""
             import json as _json
 
             payload = _json.dumps(task, ensure_ascii=False)
@@ -1081,7 +1085,17 @@ def _e2e_coroutine(gui: "OtterWebGui") -> None:
                     # 挂满 300s(用户看到的"测试卡住")。改为判定两颗按钮就绪。
                     btns = win.evaluate_js("document.querySelectorAll('.btns button').length")
                     if btns and int(btns) >= 2:
-                        return True, clock_ticked
+                        # 2026-09-29 修复(e2e 假失败根因,档案五·八"见卡就点"债):
+                        # 按卡内容分流——bash 探路卡点允许消掉(bash 会话放行,不影响
+                        # 后续),继续等真正的目标写卡;目标卡(edit_file/write_file 且
+                        # 路径含 want)才返回交由调用方点击
+                        gname, gpath = getattr(gui.gate_session, "last", ("", ""))
+                        if gname == "bash":
+                            diffwin_click(ok=True)
+                            await asyncio.sleep(0.6)  # 等窗口销毁、模型继续
+                            continue
+                        if gname in ("edit_file", "write_file") and (not want or want in str(gpath)):
+                            return True, clock_ticked
                 except Exception:
                     pass
             print("  调试:独立 diff 窗口无内容(任务未跑或未触发写盘)", flush=True)
@@ -1098,7 +1112,8 @@ def _e2e_coroutine(gui: "OtterWebGui") -> None:
         print("\n===== E2E:采纳路径(独立 diff 窗口)=====", flush=True)
         target.write_text("alpha", encoding="utf-8")
         card, clock1 = await submit_and_wait_diffwin(
-            "用 edit_file 工具把 gui_e2e.txt 里的 alpha 改成 beta。禁止用 bash 写文件。")
+            "用 edit_file 工具把 gui_e2e.txt 里的 alpha 改成 beta。禁止用 bash 写文件。",
+            want="gui_e2e.txt")
         step("独立 diff 窗口有内容", bool(card))
         step("秒表在走(运行中非 00:00)", clock1)
         if card:
@@ -1116,7 +1131,7 @@ def _e2e_coroutine(gui: "OtterWebGui") -> None:
         # 轮询窗口"没有再弹"(超时无窗)且文件被直接写入
         card1b, _ = await submit_and_wait_diffwin(
             "用 edit_file 工具把 gui_e2e.txt 里的 beta 改成 beta2。禁止用 bash 写文件。",
-            timeout_s=45)  # 2026-09-24:25s 短于模型实际耗时,断言时文件尚未写完
+            timeout_s=45, want="gui_e2e.txt")  # 2026-09-24:25s 短于模型实际耗时,断言时文件尚未写完
         step("同目录第二次写:不再弹确认窗", card1b is None)
         step("同目录第二次写:文件直接写入 beta2",
              target.exists() and "beta2" in target.read_text(encoding="utf-8"))
@@ -1127,7 +1142,8 @@ def _e2e_coroutine(gui: "OtterWebGui") -> None:
         sub.mkdir(exist_ok=True)
         target2 = sub / "t.txt"
         card2, _ = await submit_and_wait_diffwin(
-            "用 write_file 工具在 gui_e2e_sub/t.txt 写入 gamma。禁止用 bash 写文件。")
+            "用 write_file 工具在 gui_e2e_sub/t.txt 写入 gamma。禁止用 bash 写文件。",
+            want="t.txt")
         step("换目录后 diff 窗口再次有内容", bool(card2))
         if card2:
             diffwin_click(ok=False)
@@ -1314,26 +1330,41 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
         if errs:
             step("  __errLog[after-history] 干净(#43)", False, errs)
 
-        # D. FILE_CHANGED 链接行(2026-09-24 R5):📎 行渲染 + 点击内联展开预览卡 + 再点收起
-        pl = gui._artifact_preview(str(samples["code"]))
+        # D. 文件统一收尾输出(2026-09-29 用户终版):FILE_CHANGED 过程行中不再插
+        #    链接行——攒进 runFiles,任务收口(onDone)统一输出「产出文件」卡;
+        #    单击行在右侧预览栏查看(真实跨桥 preview_file + 真实读盘)
         emit_event("FILE_CHANGED", {"path": str(samples["code"]), "name": samples["code"].name,
-                                    "action": "已修改", "plus": 3, "minus": 1, **pl})
+                                    "action": "已修改", "plus": 3, "minus": 1})
         await asyncio.sleep(0.3)
-        step("FILE_CHANGED 链接行渲染",
-             str(js("document.querySelector('.file-changed .file-link') !== null")) in ("true", "True"))
-        n0 = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        # 2026-09-29 用户定交互:单击=系统打开(不点,免真开程序),双击=内联预览
-        js("document.querySelector('.file-changed .file-link').ondblclick()")
+        step("FILE_CHANGED 不再插链接行",
+             str(js("document.querySelectorAll('.file-changed').length")) in ("0",))
+        step("收口前不出文件卡",
+             str(js("document.querySelectorAll('.fc-card').length")) in ("0",))
+        gui._js("onDone", {"summary": "done(files)", "final_text": "完成"})
         await asyncio.sleep(0.3)
-        n1 = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        step("双击文件名内联展开预览卡 +1", n1 == n0 + 1, f"({n0}→{n1})")
-        js("document.querySelector('.file-changed .file-link').ondblclick()")
-        await asyncio.sleep(0.3)
-        n2 = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        step("再双击文件名收起预览卡", n2 == n0, f"({n1}→{n2})")
+        step("onDone 统一输出产出文件卡",
+             str(js("document.querySelectorAll('.fc-card').length")) in ("1",))
+        js("document.querySelector('.fc-row').onclick()")
+        await asyncio.sleep(0.5)
+        step("单击文件行右侧预览栏展开(现拉磁盘)",
+             str(js("!document.getElementById('previewPane').classList.contains('hidden')")) in ("true", "True")
+             and str(js("document.querySelectorAll('#previewPane .artifact-preview-card').length")) in ("1",))
         errs = bad_errors()
         if errs:
             step("  __errLog[FILE_CHANGED] 干净", False, errs)
+
+        # D2. 真实 WKWebView 过程线唯一(2026-09-29 根因修复的权威断言):
+        #     procLogEnsure 守卫原用 ._parent——那是 node 桩的私有属性,真实 DOM
+        #     节点上恒 undefined → 守卫恒失效 → 真机每条过程行各建一个折叠块
+        #     (用户看到"每一行折叠成一条横线");改标准 parentNode 后全会话一条线。
+        #     连发两轮事件(轮间有正文/收口),块数必须仍为 1
+        for i in (1, 2):
+            emit_event("MODEL_STARTED", {"step": i, "mode": "normal"})
+            gui._js("onDelta", f"第{i}轮正文 ")
+            gui._js("onDone", {"summary": f"done{i}", "final_text": ""})
+            await asyncio.sleep(0.2)
+        step("过程折叠线全会话唯一(真机守卫修复)",
+             str(js("document.querySelectorAll('.proc-log').length")) in ("1",))
 
         # E. 压缩摘要卡(2026-09-29 用户要求仿 codex;同日真机反馈改版:默认一行收起,
         #    点击展开):CONTEXT_COMPACTED 带 summary → 收起卡;点 head 展开;
@@ -1365,22 +1396,20 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
         if errs:
             step("  __errLog[COMPACTED] 干净", False, errs)
 
-        # F. 回放文件链接行(2026-09-29 用户要求"界面能打开文件"):onHistory 后补发
-        #    onHistoryFiles 重建会话文件入口;点击现拉磁盘预览(真实跨桥+真实读盘)。
-        #    背景:链接行此前只在实时事件渲染,重启回放后界面上没有文件入口。
+        # F. 回放文件(2026-09-29 终版):onHistory 后补发 onHistoryFiles——同样以
+        #    「产出文件」卡收尾(不再链接行);单击行右侧预览(真实读盘)
         gui._js("onHistory", [])
         await asyncio.sleep(0.2)
         gui._js("onHistoryFiles", [{"path": str(samples["code"]), "name": samples["code"].name,
                                     "action": "已修改", "plus": 3, "minus": 1}])
         await asyncio.sleep(0.3)
-        step("onHistoryFiles 渲染文件链接行",
-             str(js("document.querySelector('.file-changed .file-link') !== null")) in ("true", "True"))
-        n0f = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        # 2026-09-29 用户定交互:单击=系统打开(不点),双击=内联预览
-        js("document.querySelector('.file-changed .file-link').ondblclick()")
+        step("回放统一输出文件卡(不再链接行)",
+             str(js("document.querySelectorAll('.fc-card').length")) in ("1",)
+             and str(js("document.querySelectorAll('.file-changed').length")) in ("0",))
+        js("document.querySelector('.fc-row').onclick()")
         await asyncio.sleep(0.5)
-        n1f = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        step("双击回放链接现拉磁盘预览 +1", n1f == n0f + 1, f"({n0f}→{n1f})")
+        step("回放行单击右侧预览(现拉磁盘)",
+             str(js("document.querySelectorAll('#previewPane .artifact-preview-card').length")) in ("1",))
         errs = bad_errors()
         if errs:
             step("  __errLog[onHistoryFiles] 干净", False, errs)
@@ -1395,11 +1424,11 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
         await asyncio.sleep(0.2)
         step("胶囊点开面板含文件行",
              str(js("document.querySelectorAll('.art-panel .art-row').length")) in ("1",))
-        n0g = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        js("document.querySelector('.art-panel .art-btn').onclick()")  # 预览按钮
+        n0g = int(js("document.querySelectorAll('#previewPane .artifact-preview-card').length") or 0)
+        js("document.querySelector('.art-panel .art-btn').onclick()")  # 预览按钮 → 右侧栏
         await asyncio.sleep(0.5)
-        n1g = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        step("面板预览按钮现拉磁盘 +1", n1g == n0g + 1, f"({n0g}→{n1g})")
+        n1g = int(js("document.querySelectorAll('#previewPane .artifact-preview-card').length") or 0)
+        step("面板预览按钮右侧栏现拉磁盘", n1g == 1 and n1g >= n0g)
         errs = bad_errors()
         if errs:
             step("  __errLog[art-bar] 干净", False, errs)

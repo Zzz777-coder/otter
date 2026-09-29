@@ -107,7 +107,7 @@ window.otterUI = {
     if (!currentAssistant) {          // 首 delta:开流式块(思考行保留,钉在底部)
       startAssistant();
       rawBuf = "";
-      procLog = null;  // 2026-09-28 正文开始=过程块收口(本轮过程行已定格在上方)
+      // 2026-09-29 用户终版:不再断块——所有思考/工具过程永远进同一条折叠线
     }
     rawBuf += text;
     scheduleStreamRender();
@@ -142,11 +142,14 @@ window.otterUI = {
       }
       railDot("artifacts", true);  // 2026-09-24 rail 徽标:有新交付物,artifacts 键亮点
     }
-    // 2026-09-24 R5(用户要求):写类工具成功 → 📎 链接行(图标+文件名超链接);
-    // 2026-09-29 仿 codex:同数据喂顶部产物胶囊(会话内文件统一收纳入口)
+    // 2026-09-29 用户终版:过程行中不再散插文件链接——文件变更攒进 runFiles,
+    // 任务收口(onDone/onError/onStopped)统一输出「产出文件」卡;胶囊同步更新
     else if (type === "FILE_CHANGED") {
-      try { showFileLink(p); barAdd(p); } catch (e) {
-        (window.__errLog = window.__errLog || []).push("showFileLink error: " + String(e));
+      try {
+        runFiles.set(p.path || p.name || "?", p);
+        barAdd(p);
+      } catch (e) {
+        (window.__errLog = window.__errLog || []).push("FILE_CHANGED error: " + String(e));
       }
     }
     else if (type === "RUN_BUDGET_WARNING") { meta("system", `💰 预算提醒 ${p.used}/${p.budget} token`); }
@@ -165,7 +168,7 @@ window.otterUI = {
     }
   },
   onDone(payload) {
-    procLog = null;  // 2026-09-28 本轮收口:下轮 Run 的过程行开新块(不挤同块)
+    // 2026-09-29 用户终版:过程线不断块;任务收口统一输出本任务攒下的文件卡
     hideThinking();
     // 修复(2026-09-23 重复回复):流式期间已有 assistant 块(finalize 会渲染剩余 buffer)
     // 不再另起新块——只在流式没产生块时(如无输出)才建终块
@@ -178,6 +181,7 @@ window.otterUI = {
     }
     rawBuf = "";
     meta("ok", `✔ ${payload.summary}`);
+    flushRunFiles();  // 2026-09-29 终版:多个文件统一放在任务最后输出
     setBusy(false);
     railDot("runs", true);  // 2026-09-24 rail 徽标:run 落地,runs 键亮点(切页即清)
   },
@@ -185,6 +189,7 @@ window.otterUI = {
     hideThinking();
     finalizeAssistant();
     meta("err", `❌ 出错:${text}`);
+    flushRunFiles();  // 2026-09-29:失败也把已产生的文件如实列出
     setBusy(false);
     railDot("runs", true);  // 2026-09-24 rail 徽标:失败也是新历史
   },
@@ -192,6 +197,7 @@ window.otterUI = {
     hideThinking();
     finalizeAssistant();
     meta("system", "⏹ 已停止");
+    flushRunFiles();  // 2026-09-29:中断也把已产生的文件如实列出
     setBusy(false);
     railDot("runs", true);  // 2026-09-24 rail 徽标:中断也是新历史
   },
@@ -200,18 +206,20 @@ window.otterUI = {
   // onHistory 只重建消息气泡,实时渲染的 FILE_CHANGED 链接行回放时丢失,
   // 重启后界面上没有文件入口;点击链接内联预览/打开(与实时链路同一函数)
   onHistoryFiles(files) {
-    barClear();  // 回放重灌:先丢旧会话数据(胶囊/链接行随 onHistory 已清)
+    barClear();  // 回放重灌:先丢旧会话数据(胶囊/文件卡随 onHistory 已清)
     for (const p of files || []) {
-      try { showFileLink(p); barAdd(p); } catch (e) {
+      try { barAdd(p); } catch (e) {
         (window.__errLog = window.__errLog || []).push("onHistoryFiles error: " + String(e));
       }
     }
+    // 2026-09-29 终版:回放同样以「产出文件」卡统一收尾(放会话末尾)
+    renderFileCard(files || []);
   },
   onDiffPreview(payload) { return showDiffCard(payload); },  // M3.5:返回 Promise,Python 侧等待采纳/拒绝
   onHistory(messages) {
     thread.innerHTML = "";
     currentAssistant = null;
-    procLog = null;  // 2026-09-28 回放过程块按 assistant 分段重建
+    procLog = null;  // 2026-09-29 终版:回放重建唯一一条过程线(不再按正文分段)
     barClear();  // 2026-09-29 产物胶囊随清屏重置(数据由 onHistoryFiles 重灌)
     // 修复(2026-09-23 #43):清空 thread 后必须复位 thinkingEl——否则它指向已分离
     // 节点,后续 ensureThinking 不重建、insertBefore 抛 NotFoundError(事件整批丢失)
@@ -222,7 +230,6 @@ window.otterUI = {
         if (!(m.content || "").trim()) continue;
         startAssistant();
         renderMarkdown(currentAssistant.querySelector(".body"), m.content);
-        procLog = null;  // 2026-09-28 正文出现=过程块收口(后续工具行开新块)
         finalizeAssistant();
       } else if (m.role === "tool") {
         const firstLine = (m.content || "").split("\n").find((l) => l.trim()) || "";
@@ -450,10 +457,69 @@ function showArtifactCard(p) {
   mountAboveThinking(buildArtifactCard(p));  // #43:统一挂载(含悬空守卫)
 }
 
-// ── 2026-09-29 会话产物胶囊(用户要求仿 codex「N artifacts」)──
+// ── 2026-09-29 用户终版:文件统一收尾输出 + 右侧预览面板 ──
+// 多个文件不再散插链接行:任务收口统一输出「产出文件」卡;单击文件在右侧
+// 预览栏查看(参照 codex 截图布局),打开系统程序走卡内按钮。
+let runFiles = new Map();   // 本 Run 攒的文件变更(path→payload,同 path 覆盖)
+function flushRunFiles() {
+  if (!runFiles.size) return;
+  renderFileCard(Array.from(runFiles.values()));
+  runFiles = new Map();  // 输出即清:下一 Run 重新攒
+}
+function renderFileCard(files) {
+  if (!files || !files.length) return;
+  const card = document.createElement("div");
+  card.className = "fc-card";
+  const title = document.createElement("div");
+  title.className = "fc-title";
+  title.textContent = `📄 产出文件 · ${files.length}`;
+  card.appendChild(title);
+  for (const p of files) {
+    const row = document.createElement("div");
+    row.className = "fc-row";
+    const ico = document.createElement("span");
+    ico.className = "file-ico";
+    ico.innerHTML = ICON_FILE;
+    const name = document.createElement("span");
+    name.className = "fc-name";
+    name.textContent = p.name || p.path || "?";
+    name.title = p.path || "";
+    const act = document.createElement("span");
+    act.className = "fc-action";
+    act.textContent = (p.action || "") +
+      ((p.plus != null || p.minus != null) ? ` (+${p.plus || 0}/-${p.minus || 0})` : "");
+    row.append(ico, name, act);
+    row.onclick = () => showPreview(p);  // 用户终版:单击=右侧区域预览
+    card.appendChild(row);
+  }
+  mountAboveThinking(card);
+}
+// 右侧预览栏:点文件展开,现拉磁盘(preview_file),复用产物卡渲染;关闭收起
+async function showPreview(p) {
+  const pane = $("#previewPane");
+  if (!pane) return;
+  const q = Object.assign({}, p);
+  if (!q.preview_type && (q.path || q.name) && window.pywebview) {
+    try { Object.assign(q, await window.pywebview.api.preview_file(q.path || q.name)); } catch (e) {
+      /* 拉失败走 binary 兜底卡 */
+    }
+  }
+  pane.innerHTML = "";
+  pane.classList.remove("hidden");
+  const close = document.createElement("button");
+  close.className = "pane-close";
+  close.textContent = "✕";
+  close.title = "关闭预览";
+  close.onclick = () => { pane.classList.add("hidden"); pane.innerHTML = ""; };
+  pane.appendChild(close);
+  pane.appendChild(buildArtifactCard(q));  // 卡内自带 打开/Finder/VS Code 三通道
+}
+
+
 // 本会话涉及的文件统一收纳在聊天流顶部的胶囊里,点开是文件面板(每行:文件名+
 // 预览/打开按钮);消息流中的链接行保留(上下文位置有意义)。数据来源:实时
 // FILE_CHANGED + 回放 onHistoryFiles,同 path 覆盖留最新状态;切会话清空。
+// ── 2026-09-29 会话产物胶囊(用户要求仿 codex「N artifacts」)──
 let artifactsBar = null;   // {el, files: Map<path,payload>, open}
 function barEnsure() {
   // 悬空守卫(与 thinkingEl 同款):onHistory/#newConv 清屏后旧节点已分离,重建
@@ -502,15 +568,13 @@ function barRender() {
     name.className = "art-name";
     name.title = p.path || p.name || "";
     name.textContent = p.name || p.path || "?";
-    // 与链接行同交互:单击=系统打开,双击=预览;显式按钮兜底防误触。
-    // 预览卡不落在绝对定位面板内(会撑破),锚到胶囊下方的聊天流
-    name.onclick = () => openViaApi(p);
-    name.ondblclick = () => barPreview(p, el);
+    // 2026-09-29 终版:单击=右侧预览(与文件卡同交互);「打开」按钮=系统程序
+    name.onclick = () => showPreview(p);
     const bPrev = document.createElement("button");
     bPrev.type = "button";
     bPrev.className = "art-btn";
     bPrev.textContent = "预览";
-    bPrev.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); barPreview(p, el); };
+    bPrev.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); showPreview(p); };
     const bOpen = document.createElement("button");
     bOpen.type = "button";
     bOpen.className = "art-btn";
@@ -521,25 +585,10 @@ function barRender() {
   }
   el.append(pill, panel);
 }
-// 面板预览:按 path 记卡(同文件再点收起);卡插在胶囊正下方(聊天流内,可见区)
-async function barPreview(p, barEl) {
-  barEl.__cards = barEl.__cards || {};
-  const key = p.path || p.name || "?";
-  if (barEl.__cards[key]) { barEl.__cards[key].remove(); delete barEl.__cards[key]; return; }
-  const q = Object.assign({}, p);
-  if (!q.preview_type && q.path && window.pywebview) {
-    try { Object.assign(q, await window.pywebview.api.preview_file(q.path)); } catch (e) { /* binary 卡兜底 */ }
-  }
-  const card = buildArtifactCard(q);
-  barEl.__cards[key] = card;
-  if (barEl.parentNode) barEl.parentNode.insertBefore(card, barEl.nextSibling);
-  scrollBottom();
-}
 
-// ── 2026-09-24 R5:文件变更链接行(⚙/📎 行)──
-// 「📎 已修改 product.py (+2/-1)」:文件名为超链接——
-// 2026-09-29 用户定交互:单击=系统程序打开,双击=行下方内联预览(单击延迟
-// 300ms,期间第二击到达则取消打开转预览)
+// ── 2026-09-24 R5:文件变更链接行(⚙/📎 行)── 【2026-09-29 终版退役:不再实时
+// 插入消息流——多个文件统一在任务收口以「产出文件」卡输出(renderFileCard),
+// 单击走右侧预览。函数保留供回溯,无调用点】
 function showFileLink(p) {
   const line = document.createElement("div");
   line.className = "meta file-changed";
@@ -652,7 +701,11 @@ function showCompactCard(p) {
 // ok/err 等警示行与 assistant 正文不受影响。正文渲染时 procLog 置空断块。
 let procLog = null;
 function procLogEnsure() {
-  if (procLog && procLog._parent) return procLog;
+  // 2026-09-29 根因修复(真机"每行折叠成一条横线"):守卫原写 procLog._parent——
+  // 那是 node 测试桩的私有属性,真实 WKWebView 节点上恒 undefined → 守卫恒失效 →
+  // 每条过程行都新建一个折叠块(#44 同族:桩与真实 DOM 行为差异,测试全绿测不出)。
+  // 改用标准 parentNode;配合移除各处"断块"逻辑,整个会话只有一条过程线(用户终版要求)
+  if (procLog && procLog.parentNode) return procLog;
   const box = document.createElement("div");
   box.className = "proc-log";
   const head = document.createElement("div");

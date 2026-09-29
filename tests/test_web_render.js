@@ -287,46 +287,58 @@ otterUI2.onDelta("收尾");
 otterUI2.onDone({ summary: "done", final_text: "" });
 check("流式中 ARTIFACT 卡片不被冲掉", cardsInThread() === 2);
 
-// 8f. FILE_CHANGED(R5,2026-09-24;2026-09-29 用户定交互:单击=系统打开,双击=内联预览):
-//     链接行(图标+文件名+diffstat)+ 顶部产物胶囊;单击调 open_artifact,
-//     双击行下方内联展开预览卡,再双击收起
+// 8f. FILE_CHANGED(2026-09-29 用户终版):过程行中不再插链接行——文件攒进
+//     runFiles+产物胶囊,onDone 收口统一输出「产出文件」卡;单击行=右侧预览
+const paneEl = new El("aside");
+paneEl.className = "preview-pane hidden";
+document.querySelector = (sel) =>
+  sel === "#thread" ? threadEl :
+  sel === "#previewPane" ? paneEl :
+  sel === "#convSearch" ? searchEl :
+  sel === "#convList" ? listEl :
+  sel === "#statusbar" ? statusEl : new El("div");
 global.window.pywebview = { api: {
   open_artifact: async (p, how) => { global.__opened = [p, how]; return "ok"; },
+  preview_file: async () => ({ preview_type: "code", lang: "python", content: "print(1)" }),
 } };
-global.__opened = null;
 otterUI2.onEvent({ type: "FILE_CHANGED", path: "demo/sample.py", name: "sample.py",
-                   action: "已修改", plus: 2, minus: 1,
-                   preview_type: "code", lang: "python", content: "print(1)", size: 8 });
-const linkLine = threadEl.children.find((c) => c._cl.has("file-changed"));
-check("R8 链接行=文件图标+文案", linkLine !== undefined
-  && linkLine.querySelector(".file-ico") !== null
-  && linkLine.children[1] && linkLine.children[1].textContent.includes("已修改"));
-const linkEl2 = linkLine && linkLine.querySelector(".file-link");
-check("R5 文件名为超链接", linkEl2 !== null && linkEl2.textContent === "sample.py");
+                   action: "已修改", plus: 2, minus: 1, size: 8 });
+check("FILE_CHANGED 不再插链接行", !threadEl.children.some((c) => c._cl.has("file-changed")));
 check("FILE_CHANGED 同步喂产物胶囊", threadEl.children.some((c) => c._cl.has("art-bar")));
-const r5Base = cardsInThread();
-linkEl2.onclick();  // 桩 setTimeout 立即执行 → openViaApi 已同步调
-check("R5 单击链接=系统打开", global.__opened !== null
-      && global.__opened[0] === "demo/sample.py" && global.__opened[1] === "open");
-linkEl2.ondblclick();
-check("R5 双击链接=内联预览 +1", cardsInThread() === r5Base + 1);
-check("R8 diffstat (+2/-1) 在行内(第4子元素)", linkLine.children[3]
-  && linkLine.children[3].textContent === " (+2/-1)");
-linkEl2.ondblclick();
-check("R5 再双击收起", cardsInThread() === r5Base);
+check("收口前不出文件卡", !threadEl.children.some((c) => c._cl.has("fc-card")));
+otterUI2.onDone({ summary: "完成", final_text: "好了" });
+const fcCard = threadEl.children.find((c) => c._cl.has("fc-card"));
+check("onDone 统一输出产出文件卡", fcCard !== undefined
+      && textOf(fcCard).includes("产出文件 · 1"));
+check("文件卡行含文件名与 diffstat", fcCard !== undefined
+      && textOf(fcCard).includes("sample.py") && textOf(fcCard).includes("(+2/-1)"));
+check("收口后 runFiles 清空(下轮重攒)", true);  // 行为断言见下:再 onDone 无第二张卡
+otterUI2.onDone({ summary: "空", final_text: "" });
+check("无新文件时不再出文件卡",
+      threadEl.children.filter((c) => c._cl.has("fc-card")).length === 1);
+// 单击行=右侧预览(showPreview 内 await preview_file,断言进 microtask)
+(async () => {
+  const fcRow = fcCard && fcCard.querySelector(".fc-row");
+  fcRow && fcRow.onclick();
+  await new Promise((r) => setTimeout(r, 0));
+  check("单击文件行=右侧预览栏展开", paneEl.classList.contains("hidden") === false
+        && paneEl.querySelectorAll(".artifact-preview-card").length === 1
+        && paneEl.querySelector(".pane-close") !== null);
+})();
 
-// 8g. 回放补发文件链接行(2026-09-29 用户要求"界面能打开文件"):
-//     onHistory 只重建消息气泡,实时渲染的链接行回放丢失——onHistoryFiles
-//     在回放后补发,重建本会话的文件入口(点击现拉磁盘预览,与实时同链路)
+// 8g. 回放补发文件(2026-09-29 用户终版):onHistoryFiles 以「产出文件」卡统一
+//     收尾(不再链接行),胶囊同步重灌
 otterUI2.onHistory([]);
 otterUI2.onHistoryFiles([
   { path: "cities.txt", name: "cities.txt", action: "已创建", plus: 15, minus: 0 },
   { path: "summary.md", name: "summary.md", action: "已修改", plus: 3, minus: 1 },
 ]);
-const replayLinks = threadEl.children.filter((c) => c._cl.has("file-changed"));
-check("onHistoryFiles 渲染 2 条文件链接行", replayLinks.length === 2);
-check("回放链接行含文件名", replayLinks[0] && replayLinks[0].querySelector(".file-link").textContent === "cities.txt");
-check("回放链接含 action 文案", replayLinks[0] && textOf(replayLinks[0]).includes("已创建"));
+const replayFc = threadEl.children.filter((c) => c._cl.has("fc-card"));
+check("回放统一输出文件卡", replayFc.length === 1
+      && textOf(replayFc[0]).includes("产出文件 · 2"));
+check("回放文件卡含两个文件名", textOf(replayFc[0]).includes("cities.txt")
+      && textOf(replayFc[0]).includes("summary.md"));
+check("回放不再渲染链接行", threadEl.children.filter((c) => c._cl.has("file-changed")).length === 0);
 
 // 8g2. 会话产物胶囊(2026-09-29 用户要求仿 codex「N artifacts」):回放重灌后
 //      胶囊在 thread 顶部,点开面板=文件行(名称+预览/打开按钮),同 path 去重
@@ -718,7 +730,8 @@ check("面板行含预览/打开按钮", artRows[0] && artRows[0].querySelectorA
     check("点标题展开", box && box.classList.contains("open"));
     if (head) head.onclick();
     check("再点收起", box && !box.classList.contains("open"));
-    // 回放分段:user→tool×2→assistant→tool×1 → 两个块(正文间隔断)
+    // 2026-09-29 用户终版:回放不再按正文分段——所有思考/工具过程进同一条线
+    // (此前每轮/每段一块,真机还因 _parent 守卫失效碎成每行一块)
     // ui 闭包的 thread 已绑 tEl,此处清空复用(另设 t2 无效)
     tEl.children = [];
     ui.onHistory([
@@ -729,9 +742,9 @@ check("面板行含预览/打开按钮", artRows[0] && artRows[0].querySelectorA
       { role: "tool", content: "结果C", name: "make_pdf" },
     ]);
     const boxes = tEl.children.filter((c) => c._cl && c._cl.has("proc-log"));
-    check("回放按正文分段成 2 块", boxes.length === 2);
-    check("第二块 1 步", boxes.length === 2
-      && String(boxes[1].querySelector(".proc-log-head").textContent).includes("1 步"));
+    check("回放过程线唯一(不再分段)", boxes.length === 1);
+    check("唯一线含全部 3 步", boxes.length === 1
+      && String(boxes[0].querySelector(".proc-log-head").textContent).includes("3 步"));
   }
 
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);
