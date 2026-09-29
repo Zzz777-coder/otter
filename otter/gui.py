@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260929c"  # 20260929c:压缩显示改 codex 式摘要卡(事件带 summary+前端渲染)(index.html ?v= 同步)
+WEB_BUILD = "20260929d"  # 20260929d:压缩卡默认一行收起,点击展开(真机反馈多卡重复刷屏)(index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -1322,8 +1322,9 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
         if errs:
             step("  __errLog[FILE_CHANGED] 干净", False, errs)
 
-        # E. 压缩摘要卡(2026-09-29 用户要求仿 codex):CONTEXT_COMPACTED 带 summary →
-        #    真实跨桥渲染摘要卡;旧形态(无 summary)退回提示行不建卡。
+        # E. 压缩摘要卡(2026-09-29 用户要求仿 codex;同日真机反馈改版:默认一行收起,
+        #    点击展开):CONTEXT_COMPACTED 带 summary → 收起卡;点 head 展开;
+        #    旧形态(无 summary)退回提示行不建卡。
         #    #44 教训:跨桥契约改动必须真实 WKWebView DOM 断言,node 桩不替代。
         emit_event("CONTEXT_COMPACTED", {
             "covered": 14, "compressions": 2, "usage_in": 900, "usage_out": 200,
@@ -1332,9 +1333,15 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
                         "completed_work": ["已定位压缩事件链路"],
                         "pending_work": ["等待人工验收"], "important_facts": []}})
         await asyncio.sleep(0.3)
-        step("CONTEXT_COMPACTED 渲染摘要卡",
+        step("CONTEXT_COMPACTED 渲染收起卡",
              str(js("document.querySelector('.compact-card') !== null")) in ("true", "True"))
-        step("摘要卡含当前目标与条目",
+        step("默认收起(无 open)",
+             str(js("document.querySelector('.compact-card')?.classList.contains('open')")) in ("false", "False"))
+        js("document.querySelector('.compact-card .compact-head').onclick()")
+        await asyncio.sleep(0.2)
+        step("点击一行展开(open)",
+             str(js("document.querySelector('.compact-card')?.classList.contains('open')")) in ("true", "True"))
+        step("展开后含当前目标与条目",
              "探针目标:验证压缩摘要卡渲染" in str(js("document.querySelector('.compact-card')?.textContent || ''"))
              and "已定位压缩事件链路" in str(js("document.querySelector('.compact-card')?.textContent || ''")))
         emit_event("CONTEXT_COMPACTED", {"covered": 3, "compressions": 1, "usage_in": 5, "usage_out": 5})

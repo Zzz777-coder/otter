@@ -155,17 +155,23 @@ body {
 .proc-log-body { display: none; padding: 2px 12px 8px; }
 .proc-log.open .proc-log-body { display: block; }
 
-/* 2026-09-29 压缩摘要卡(用户要求仿 codex):压缩产物分组 bullet 展示,不再一行横线 */
+/* 2026-09-29 压缩摘要卡(用户要求仿 codex):默认一行收起,点击展开分组 bullet */
 .compact-card {
-  max-width: 650px; margin: 8px 0 14px; padding: 10px 14px 12px;
-  background: #fbfcfe; border: 1px solid #e0e6f0; border-radius: 10px;
+  max-width: 650px; margin: 8px 0 4px;
+  background: #fbfcfe; border: 1px solid #e0e6f0; border-radius: 9px;
+  overflow: hidden;
 }
-.compact-head { display: flex; align-items: center; gap: 8px; }
-.compact-title { font-size: 12.5px; font-weight: 700; color: var(--text); }
-.compact-chip {
-  margin-left: auto; font-size: 10.5px; color: var(--muted);
-  background: #eef1f6; border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+.compact-head {
+  display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+  font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  cursor: pointer; user-select: none;
 }
+.compact-head:hover { background: #f1f4fa; }
+.compact-card.open .compact-head { color: var(--text); }
+.compact-title { font-weight: 600; }
+.compact-arrow { margin-left: auto; }
+.compact-body { display: none; padding: 2px 14px 12px; }
+.compact-card.open .compact-body { display: block; }
 .compact-goal { margin-top: 7px; font-size: 12.5px; font-weight: 600; color: var(--text); }
 .compact-group { margin: 8px 0 2px; font-size: 11px; font-weight: 600; color: var(--muted); }
 .compact-item {

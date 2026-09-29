@@ -481,7 +481,8 @@ async function toggleFilePreview(p, anchor) {
 
 // ── 2026-09-29 压缩摘要卡(用户要求仿 codex「History from previous session」)──
 // 压缩发生时把结构化摘要(当前目标/用户约束/关键决策/已完成/待办/重要事实)
-// 渲染成分组 bullet 卡——压缩掉了什么对用户可见,不再是一行"已压缩"横线。
+// 做成可展开卡片:默认一行「上下文已压缩」,点击展开分组 bullet(真机反馈:
+// 滚动摘要逐次合并、多卡内容重复,全展开会刷屏)。
 // 事件缺 summary 字段(旧库回放/异常路径)时退回原一行提示。
 const COMPACT_GROUPS = [
   ["user_constraints", "用户约束"], ["key_decisions", "关键决策"],
@@ -498,22 +499,30 @@ function showCompactCard(p) {
   head.className = "compact-head";
   const title = document.createElement("span");
   title.className = "compact-title";
-  title.textContent = "⇩ 已压缩的早期对话";
-  const chip = document.createElement("span");
-  chip.className = "compact-chip";
-  chip.textContent = `第 ${p.compressions} 次 · 覆盖 ${p.covered} 条`;
-  head.append(title, chip);
+  title.textContent = `⇩ 上下文已压缩(第 ${p.compressions} 次 · 已覆盖 ${p.covered} 条)`;
+  const arrow = document.createElement("span");
+  arrow.className = "compact-arrow";
+  arrow.textContent = "▸";
+  head.append(title, arrow);
+  // 2026-09-29 用户要求(真机反馈:滚动摘要逐次合并,多张卡内容几乎一样刷屏):
+  // 默认收成一行,点击展开/收起(与过程折叠块同款交互)
+  head.onclick = () => {
+    card.classList.toggle("open");
+    arrow.textContent = card.classList.contains("open") ? "▾" : "▸";
+  };
+  const body = document.createElement("div");
+  body.className = "compact-body";
   const goal = document.createElement("div");
   goal.className = "compact-goal";
   goal.textContent = `🎯 当前目标:${p.summary.current_objective}`;
-  card.append(head, goal);
+  body.appendChild(goal);
   for (const [key, label] of COMPACT_GROUPS) {
     const items = p.summary[key] || [];
     if (!items.length) continue;
     const g = document.createElement("div");
     g.className = "compact-group";
     g.textContent = label;
-    card.appendChild(g);
+    body.appendChild(g);
     for (const it of items) {
       const row = document.createElement("div");
       row.className = "compact-item";
@@ -522,9 +531,10 @@ function showCompactCard(p) {
       const txt = document.createElement("span");
       txt.textContent = it;  // textContent 直写:摘要文本不进 innerHTML,天然防注入
       row.append(dot, txt);
-      card.appendChild(row);
+      body.appendChild(row);
     }
   }
+  card.append(head, body);
   mountAboveThinking(card);  // #43:统一挂载(含悬空守卫)
 }
 

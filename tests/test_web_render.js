@@ -239,8 +239,10 @@ const beforeDual = plogMetas();
 otterUI2.onEvent("RUN_BUDGET_WARNING", { used: 10, budget: 100 });
 check("#44 双参形态仍兼容", plogMetas() === beforeDual + 1);
 
-// 8c2. 压缩摘要卡(2026-09-29 用户要求仿 codex:压缩不再缩成一行横线):
-//      CONTEXT_COMPACTED 带 summary → 分组 bullet 卡;无 summary 旧形态 → 退回提示行
+// 8c2. 压缩摘要卡(2026-09-29 用户要求仿 codex;同日真机反馈改版:默认收成一行,
+//      点击展开——滚动摘要逐次合并,多张全展开卡内容重复刷屏):
+//      CONTEXT_COMPACTED 带 summary → 一行可点卡(默认无 open);点 head 展开;
+//      无 summary 旧形态 → 退回提示行
 //      (El 桩 textContent 不递归聚合子节点,自写 textOf 收集整卡文本)
 const textOf = (node) => {
   let s = node.textContent || "";
@@ -251,11 +253,16 @@ otterUI2.onEvent({ type: "CONTEXT_COMPACTED", covered: 14, compressions: 2,
   summary: { current_objective: "修复登录超时", completed_work: ["已定位 auth.py 根因"],
              pending_work: ["补回归测试"], user_constraints: [], key_decisions: [], important_facts: [] } });
 const ccard = threadEl.children.find((c) => c._cl.has("compact-card"));
-check("CONTEXT_COMPACTED 渲染摘要卡(不再横线)", ccard !== undefined);
-check("摘要卡含当前目标", !!ccard && textOf(ccard).includes("修复登录超时"));
-check("摘要卡含已完成/待办条目", !!ccard && textOf(ccard).includes("已定位 auth.py 根因")
-      && textOf(ccard).includes("补回归测试"));
-check("摘要卡头含次数与覆盖数", !!ccard && textOf(ccard).includes("第 2 次") && textOf(ccard).includes("14"));
+check("CONTEXT_COMPACTED 渲染收起卡(一行)", ccard !== undefined
+      && textOf(ccard.querySelector(".compact-head")).includes("上下文已压缩"));
+check("默认收起(无 open)", !!ccard && !ccard._cl.has("open"));
+ccard && ccard.querySelector(".compact-head").onclick();
+check("点击一行展开(open)", !!ccard && ccard.classList.contains("open"));
+check("展开后含当前目标与条目", !!ccard && textOf(ccard).includes("修复登录超时")
+      && textOf(ccard).includes("已定位 auth.py 根因") && textOf(ccard).includes("补回归测试"));
+check("一行含次数与覆盖数", !!ccard && textOf(ccard).includes("第 2 次") && textOf(ccard).includes("14"));
+ccard && ccard.querySelector(".compact-head").onclick();
+check("再点收起", !!ccard && !ccard.classList.contains("open"));
 const beforeCC = plogMetas();
 otterUI2.onEvent({ type: "CONTEXT_COMPACTED", covered: 3, compressions: 1 });
 check("旧形态(无 summary)退回提示行,不建卡",
