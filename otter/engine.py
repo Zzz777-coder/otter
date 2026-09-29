@@ -16,6 +16,7 @@ workspace 语义(显式传参,不再隐式依赖调用进程的 cwd):
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +42,8 @@ class Engine:
     summary_adapter: object | None = None
     reconciled: int = 0
     mcp_report: list[str] = field(default_factory=list)
+    # 2026-09-29 记忆向量后台补全任务(装配即起,查询零等待;aclose 收尾)
+    backfill_task: object | None = None
 
     async def run_task(self, prompt: str, max_steps: int | None = None,
                        mode: str = MODE_NORMAL):
@@ -52,6 +55,8 @@ class Engine:
 
     async def aclose(self) -> None:
         """释放底层连接(adapter HTTP 与 SQLite);引擎用完必须调用。"""
+        if self.backfill_task is not None and not self.backfill_task.done():
+            self.backfill_task.cancel()  # 后台补全未跑完:收尾取消(投影下次再补)
         await self.loop.adapter.close()
         if self.summary_adapter is not None and self.summary_adapter is not self.loop.adapter:
             await self.summary_adapter.close()
@@ -124,6 +129,16 @@ async def build_engine(workspace: str | Path | None = None, config: Config | Non
         run_budget=cfg.run_budget,
         reflection_adapter=summary_adapter,
     )
-    return Engine(loop=loop, store=store, adapter=adapter, config=cfg,
-                  summary_adapter=summary_adapter, reconciled=reconciled,
-                  mcp_report=mcp_report)
+    engine = Engine(loop=loop, store=store, adapter=adapter, config=cfg,
+                    summary_adapter=summary_adapter, reconciled=reconciled,
+                    mcp_report=mcp_report)
+    # 2026-09-29 记忆向量后台补全:装配关键路径不等远程 Embedding,起后台任务
+    # 预对账(查询零等待);未配置 Embedding 时静默跳过,检索侧惰性对账仍是兜底
+    if memory_bundle is not None:
+        from otter.rag import backfill_memory_embeddings, build_embed_client_from_env
+
+        embed_client = build_embed_client_from_env()
+        if embed_client is not None:
+            engine.backfill_task = asyncio.create_task(
+                backfill_memory_embeddings(memory_bundle[0], embed_client))
+    return engine

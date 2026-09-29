@@ -139,11 +139,19 @@ class RagIndex:
     """持久化混合索引:向量列(sqlite-vec vec0 虚拟表)+ 词法列(FTS5)。
 
     同一 db 文件承载两路;dim 记在 meta(换 Embedding 模型维度变化 → 自动清表重建)。
+    2026-09-29 向量数学口径对齐余弦体系:入库与查询向量统一 L2 归一化、
+    vec0 用 cosine 距离度量(相似度 = 1 - 距离);KNN 设弱命中阈值——无关文本
+    之间的余弦并非零(碰撞/Embedding 普遍正值),低于阈值不进融合,防噪声挤占。
     """
 
-    def __init__(self, db_path: Path, dim: int) -> None:
+    # 弱命中阈值:余弦相似度低于该值的 KNN 命中不参与融合(防噪声 chunk)
+    MIN_VECTOR_SIMILARITY = 0.12
+
+    def __init__(self, db_path: Path, dim: int,
+                 min_similarity: float = MIN_VECTOR_SIMILARITY) -> None:
         self.db_path = db_path
         self.dim = dim
+        self.min_similarity = min_similarity
         self._db: sqlite3.Connection | None = None
         self._vec_ok = _VEC_OK  # 实例级:连接失败也会翻回 False
 
@@ -165,8 +173,14 @@ class RagIndex:
     def _ensure_schema(self, db: sqlite3.Connection) -> None:
         row = db.execute("SELECT v FROM meta WHERE k='dim'").fetchone() \
             if self._has_table(db, "meta") else None
-        if row is not None and int(row[0]) != self.dim:
-            # 维度变化(换了 Embedding 模型):旧向量不可比,清空重建
+        metric_row = db.execute("SELECT v FROM meta WHERE k='vec_metric'").fetchone() \
+            if self._has_table(db, "meta") else None
+        # 重建条件:维度变化(换 Embedding 模型)或度量口径变化(旧库是
+        # 未归一化的默认 L2,与现在的 cosine 体系不可比)
+        rebuild = row is not None and int(row[0]) != self.dim
+        if metric_row is None and row is not None:
+            rebuild = True  # 有 dim 记录但没有 metric 标记=旧口径库
+        if rebuild:
             for t in ("rag_vec", "rag_fts", "chunks", "meta"):
                 try:
                     db.execute(f"DROP TABLE IF EXISTS {t}")
@@ -177,7 +191,9 @@ class RagIndex:
                    "chunk_id TEXT PRIMARY KEY, source TEXT, text TEXT, hash TEXT)")
         if self._vec_ok and self.dim > 0:  # dim=0(纯词法降级)不建向量列
             db.execute(f"CREATE VIRTUAL TABLE IF NOT EXISTS rag_vec USING vec0("
-                       f"chunk_id TEXT PRIMARY KEY, embedding float[{self.dim}])")
+                       f"chunk_id TEXT PRIMARY KEY, embedding float[{self.dim}] "
+                       f"distance_metric=cosine)")
+        db.execute("INSERT OR REPLACE INTO meta VALUES('vec_metric', 'cosine')")
         # 2026-09-29 trigram tokenizer:中文连续串在默认 unicode61 下整串成一个
         # token(「紧急插单」查不中「紧急插单流程」),trigram 才有子串语义
         db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS rag_fts USING fts5"
@@ -190,11 +206,19 @@ class RagIndex:
         return bool(db.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
 
+    @staticmethod
+    def _normalize(vector: list[float]) -> list[float]:
+        """L2 归一化(2026-09-29:归一化后余弦体系下点积即相似度,与 cosine 距离度量配套)。"""
+        import math
+
+        norm = math.sqrt(sum(v * v for v in vector))
+        return [v / norm for v in vector] if norm > 0 else list(vector)
+
     def upsert(self, items: list[tuple[str, str, str, list[float] | None]]) -> None:
         """写入/更新分片:(chunk_id, source, text, embedding)。
 
         embedding 为 None(向量分支关闭)时只进词法索引;chunk_id 以内容 hash
-        为准的调用方自带幂等(内容未变不重复 embed)。
+        为准的调用方自带幂等(内容未变不重复 embed)。向量入库前统一归一化。
         """
         db = self._connect()
         for chunk_id, source, text, vec in items:
@@ -203,10 +227,10 @@ class RagIndex:
                        (chunk_id, source, text, h))
             db.execute("DELETE FROM rag_fts WHERE chunk_id=?", (chunk_id,))
             db.execute("INSERT INTO rag_fts(chunk_id, text) VALUES(?,?)", (chunk_id, text))
-            if self._vec_ok and vec is not None:
+            if self._vec_ok and vec is not None and self.dim > 0 and len(vec) == self.dim:
                 import struct
 
-                blob = struct.pack(f"{len(vec)}f", *vec)
+                blob = struct.pack(f"{len(vec)}f", *self._normalize(vec))
                 db.execute("INSERT OR REPLACE INTO rag_vec(chunk_id, embedding) VALUES(?,?)",
                            (chunk_id, blob))
         db.commit()
@@ -219,22 +243,31 @@ class RagIndex:
         return row is None or row[0] != want
 
     def knn(self, vec: list[float], k: int = 5) -> list[RagHit]:
-        """向量 KNN 近邻(sqlite-vec;扩展不可用时返回空)。"""
-        if not self._vec_ok:
+        """向量 KNN 近邻(cosine 距离 → 相似度 = 1 - 距离;弱命中阈值过滤)。
+
+        扩展不可用或维度不匹配时返回空;查询向量入口处归一化(与入库口径一致)。
+        """
+        if not self._vec_ok or self.dim == 0 or len(vec) != self.dim:
             return []
         db = self._connect()
         import struct
 
-        blob = struct.pack(f"{len(vec)}f", *vec)
-        rows = db.execute(
-            "SELECT chunk_id, distance FROM rag_vec WHERE embedding MATCH ? "
-            "AND k = ? ORDER BY distance", (blob, k)).fetchall()
+        blob = struct.pack(f"{len(vec)}f", *self._normalize(vec))
+        try:
+            rows = db.execute(
+                "SELECT chunk_id, distance FROM rag_vec WHERE embedding MATCH ? "
+                "AND k = ? ORDER BY distance", (blob, k)).fetchall()
+        except sqlite3.OperationalError:
+            return []
         out: list[RagHit] = []
         for chunk_id, dist in rows:
+            similarity = 1.0 - float(dist)
+            if similarity < self.min_similarity:  # 弱命中过滤:不进融合
+                continue
             r = db.execute("SELECT source, text FROM chunks WHERE chunk_id=?",
                            (chunk_id,)).fetchone()
             if r:
-                out.append(RagHit(key=chunk_id, text=r[1], score=-float(dist), source=r[0]))
+                out.append(RagHit(key=chunk_id, text=r[1], score=similarity, source=r[0]))
         return out
 
     def fts(self, query: str, limit: int = 5) -> list[RagHit]:
@@ -282,6 +315,23 @@ class RagIndex:
 
 # ── 混合检索融合(Reciprocal Rank Fusion)────────────────────────────
 
+def _first_hit_per_doc(hits: list[RagHit]) -> list[RagHit]:
+    """2026-09-29 融合前按文档去重:同一文档多片命中,每路只保留排名最高的那片。
+
+    RRF 的排名单位应是文档而非分片——长文档切块多,若按片计分会把
+    「一篇文档很多片都沾边」误抬到「真正的目标文档」之上。返回仍带最佳片原文。
+    """
+    seen: set[str] = set()
+    out: list[RagHit] = []
+    for h in hits:
+        doc = h.key.split("#", 1)[0]
+        if doc in seen:
+            continue
+        seen.add(doc)
+        out.append(h)
+    return out
+
+
 def rrf_fuse(*rankings: list[RagHit], k: int = 60) -> list[RagHit]:
     """多路召回按 RRF 融合:score = Σ 1/(k + rank)。
 
@@ -307,6 +357,61 @@ def rrf_fuse(*rankings: list[RagHit], k: int = 60) -> list[RagHit]:
 _MEMORY_INDEX: dict[Path, RagIndex] = {}  # 每记忆目录一个索引(进程内复用连接)
 
 
+async def _memory_reconcile_vectors(store, entries, embed) -> RagIndex | None:
+    """对账记忆向量投影:只对内容变化的条目(重)embed 并入库。
+
+    远程调用最小化:先按 stale 过滤,仅 embed pending 条目;索引不存在时
+    用首条探测维度。返回对齐后的索引(Embedding 失败抛出由调用方降级)。
+    后台补完后查询侧 stale 全过、条目零远程调用(只剩 query 自身一次)。
+    """
+    texts = {e.mid: f"{e.title}\n{e.summary}\n{e.content[:2000]}" for e in entries}
+    index = _MEMORY_INDEX.get(store.root)
+    if index is None:
+        if not texts:
+            return None
+        probe = (await embed([next(iter(texts.values()))]))[0]
+        index = RagIndex(store.root / "rag.sqlite", len(probe))
+        _MEMORY_INDEX[store.root] = index
+    pending = [(f"mem:{e.mid}", str(e.mid), text)
+               for e in entries if (text := texts.get(e.mid)) is not None
+               and index.stale(f"mem:{e.mid}", text)]
+    if pending:
+        vecs = await embed([t for _, _, t in pending])
+        if len(vecs[0]) != index.dim:
+            # 换了 Embedding 模型(维度变化):旧向量不可比,以新维度全量重算
+            index = RagIndex(store.root / "rag.sqlite", len(vecs[0]))
+            _MEMORY_INDEX[store.root] = index
+            all_vecs = await embed([texts[e.mid] for e in entries])
+            index.upsert([(f"mem:{e.mid}", str(e.mid), texts[e.mid], vec)
+                          for e, vec in zip(entries, all_vecs)])
+            return index
+        index.upsert([(cid, src, text, vec)
+                      for (cid, src, text), vec in zip(pending, vecs)])
+    return index
+
+
+async def backfill_memory_embeddings(store, embed_client: EmbeddingClient | None = None,
+                                     embed_fn: Callable[[list[str]], Any] | None = None
+                                     ) -> bool:
+    """后台补全记忆向量(2026-09-29:查询零等待——装配后即起任务预对账)。
+
+    装配/启动关键路径不等远程 Embedding;此函数在后台把向量投影补齐,
+    首次检索不必现场算。失败静默返回 False(查询侧的惰性对账仍是兜底)。
+    """
+    if embed_client is None and embed_fn is None:
+        return False
+
+    async def embed(texts: list[str]) -> list[list[float]]:
+        return await (embed_fn(texts) if embed_fn is not None
+                      else embed_client.embed(texts))  # type: ignore[union-attr]
+
+    try:
+        index = await _memory_reconcile_vectors(store, store.list_active(), embed)
+        return index is not None
+    except Exception:
+        return False
+
+
 async def memory_hybrid_search(store, query: str, limit: int = 5,
                                embed_client: EmbeddingClient | None = None,
                                embed_fn: Callable[[list[str]], Any] | None = None
@@ -314,7 +419,8 @@ async def memory_hybrid_search(store, query: str, limit: int = 5,
     """记忆混合检索:FTS5(现有 store.search)∪ 向量(KNN),RRF 融合。
 
     embed_fn 可注入(测试假向量);生产路径 embed_client.embed。
-    向量索引惰性构建:active 条目中内容变化的才(重)embed,Embedding 失败静默
+    向量投影优先由后台任务预对齐(backfill_memory_embeddings);此处保留
+    惰性对账作兜底——后台未完成/失败时首次查询现场补,Embedding 失败静默
     降级为纯词法结果(检索可用性优先,不为向量分支付中断代价)。
     返回 MemoryEntry 列表(融合排序),兼容 FileMemoryStore.search 调用方。
     """
@@ -331,18 +437,7 @@ async def memory_hybrid_search(store, query: str, limit: int = 5,
 
     vec_as_mids: list[str] = []
     try:
-        texts = [f"{e.title}\n{e.summary}\n{e.content[:2000]}" for e in entries]
-        vecs = await embed(texts) if texts else []
-        dim = len(vecs[0]) if vecs else 0
-        index = _MEMORY_INDEX.get(store.root)
-        if index is None or index.dim != dim:
-            index = RagIndex(store.root / "rag.sqlite", dim)
-            _MEMORY_INDEX[store.root] = index
-        items = [(f"mem:{e.mid}", str(e.mid), text, vec)
-                 for e, text, vec in zip(entries, texts, vecs)
-                 if index.stale(f"mem:{e.mid}", text)]
-        if items:
-            index.upsert(items)
+        index = await _memory_reconcile_vectors(store, entries, embed)
         qvec = (await embed([query]))[0]
         vec_as_mids = [h.source for h in index.knn(qvec, k=limit) if h.source in by_mid]
     except Exception:
@@ -400,6 +495,8 @@ async def doc_hybrid_search(root: Path, query: str, limit: int = 5,
         _DOC_INDEX[base] = index
 
     knn_hits: list[RagHit] = []
+    # 候选放大:去重(按文档)与融合都会收缩结果,两路先多取再去精
+    fetch = max(limit * 8, limit)
     if dim > 0:
         try:
             todo = [(cid, text) for cid, text in chunks if index.stale(cid, text)]
@@ -408,7 +505,7 @@ async def doc_hybrid_search(root: Path, query: str, limit: int = 5,
                 index.upsert([(cid, str(base), text, vec)
                               for (cid, text), vec in zip(todo, vecs)])
             qv = (await embed([query]))[0]
-            knn_hits = index.knn(qv, k=limit)
+            knn_hits = index.knn(qv, k=fetch)
         except Exception:
             knn_hits = []  # 向量分支失败:退纯词法
 
@@ -416,8 +513,11 @@ async def doc_hybrid_search(root: Path, query: str, limit: int = 5,
     lexical_todo = [(cid, text) for cid, text in chunks if index.stale(cid, text)]
     if lexical_todo:
         index.upsert([(cid, str(base), text, None) for cid, text in lexical_todo])
-    fts_hits = index.fts(query, limit=limit)
-    return rrf_fuse(knn_hits, fts_hits)[:limit]
+    fts_hits = index.fts(query, limit=fetch)
+    # 2026-09-29 融合前按文档去重:两路各自只留每文档最高排名片,防止
+    # 多片沾边的长文档凭块数碾压真正的目标文档
+    return rrf_fuse(_first_hit_per_doc(knn_hits),
+                    _first_hit_per_doc(fts_hits))[:limit]
 
 
 
