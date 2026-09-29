@@ -48,7 +48,11 @@ class RoleAdapter:
 
 
 class MemStore:
-    async def new_run(self):
+    def __init__(self):
+        self.parent_ids: list = []  # 2026-09-29 父 Run 挂接断言用
+
+    async def new_run(self, parent_run_id=None):
+        self.parent_ids.append(parent_run_id)
         return 21
 
     async def finish_run(self, *a):
@@ -77,7 +81,7 @@ def _make(adapter):
 
 def test_planner_json_parsing():
     subs = _parse_planner_json('```json\n{"subtasks": [{"task": "a", "write": "none"}]}\n```')
-    assert subs == [{"task": "a", "write": "none", "paths": []}]
+    assert subs == [{"task": "a", "write": "none", "paths": [], "depends_on": []}]
     for bad in ("没有 json", '{"subtasks": []}', '{"other": 1}'):
         try:
             _parse_planner_json(bad)

@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260928d"  # 20260928d:过程行(⚡/步骤)默认折叠块;正文不折叠(index.html ?v= 同步)
+WEB_BUILD = "20260929a"  # 20260929a:子代理过程行 🦦via 徽标(dispatch/orchestrate 事件上报;index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -243,14 +243,19 @@ class OtterWebGui:
             # 2026-09-29 L2:给 dispatch 可写子代理注入主审批通道——子代理写盘
             # 弹同款 diff 卡片,批/拒不落地与主代理同语义(与 preview_fn 同注入模式)
             # 2026-09-29 L3:orchestrate 编排的 worker 写入同走此通道
+            # 2026-09-29 过程可视化:event_sink=主 on_event 闭包——子代理/各角色
+            # 的事件(via 标记)实时进主界面;DIFF_PREVIEW 经此进 gate_session,
+            # 子代理写盘同样享受"同目录一次放行"会话记忆
             _disp = registry.get("dispatch")
             if _disp is not None:
                 _disp.set_gates(preview_gate=diff_preview_gate,
-                                approval_gate=build_gate(window=self.window))
+                                approval_gate=build_gate(window=self.window),
+                                event_sink=on_event)
             _orch = registry.get("orchestrate")
             if _orch is not None:
                 _orch.set_gates(preview_gate=diff_preview_gate,
-                                approval_gate=build_gate(window=self.window))
+                                approval_gate=build_gate(window=self.window),
+                                event_sink=on_event)
             if self.memory_bundle is None:
                 self.memory_bundle = memory_bundle
             # 2026-09-24 运行中取消:保留 AgentLoop 实例引用 + 每 Run 新建 cancel event

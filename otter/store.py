@@ -97,15 +97,22 @@ class Store:
         conv_cols = {row[1] for row in await cursor.fetchall()}
         if "pinned" not in conv_cols:
             await self._db.execute("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+        # 2026-09-29 子代理 run 挂父 Run(历史页可见归属;旧库补列)
+        cursor = await self._db.execute("PRAGMA table_info(runs)")
+        run_cols = {row[1] for row in await cursor.fetchall()}
+        if "parent_run_id" not in run_cols:
+            await self._db.execute("ALTER TABLE runs ADD COLUMN parent_run_id INTEGER")
         await self._db.commit()
 
     async def close(self) -> None:
         if self._db:
             await self._db.close()
 
-    async def new_run(self) -> int:
+    async def new_run(self, parent_run_id: int | None = None) -> int:
+        """新建 Run;parent_run_id(2026-09-29)标记子代理 run 的父 Run 归属。"""
         cur = await self._db.execute(
-            "INSERT INTO runs(status, started_at) VALUES('running', ?)", (_now(),)
+            "INSERT INTO runs(status, started_at, parent_run_id) VALUES('running', ?, ?)",
+            (_now(), parent_run_id),
         )
         await self._db.commit()
         return int(cur.lastrowid)
