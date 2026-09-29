@@ -130,6 +130,22 @@ class Store:
         )
         await self._db.commit()
 
+    async def recent_runs(self, hours: float = 24.0) -> list[dict]:
+        """最近 N 小时的 Run(含子代理 run;2026-09-29 巡逻 --patrol 的取数口径)。
+        running 状态的旧 Run 不在此修正(启动修正由 reconcile 负责),原样返回。"""
+        cutoff = _now() - hours * 3600
+        cur = await self._db.execute(
+            "SELECT id, status, stop_reason, started_at, parent_run_id"
+            " FROM runs WHERE started_at >= ? ORDER BY id",
+            (cutoff,),
+        )
+        return [
+            {"id": r[0], "status": r[1], "stop_reason": r[2],
+             "started_at": r[3], "parent_run_id": r[4]}
+            for r in await cur.fetchall()
+        ]
+
+
     async def append_message(self, msg: Message, sequence: int, run_id: int,
                              conversation_id: int | None = None) -> None:
         tool_calls_json = (

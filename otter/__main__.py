@@ -42,6 +42,9 @@ def main() -> int:
                         help="--serve 的端口(默认 8765;2026-09-29 新增)")
     parser.add_argument("--serve-host", default="127.0.0.1",
                         help="--serve 的绑定地址(默认 127.0.0.1 仅本机;容器/局域网用 0.0.0.0,须自担安全;2026-09-29 P7 新增)")
+    parser.add_argument("--patrol", nargs="?", const=24.0, type=float, default=None, metavar="HOURS",
+                        help="巡逻当前工作区:扫描最近 N 小时(默认 24)Run 的失败信号,"
+                             "有高危 exit 1 可接 cron;不调模型无需 key(2026-09-29 新增)")
     args = parser.parse_args()
 
     # 2026-09-29 HTTP API 模式:R1 仅会话/消息/事件的读写,不依赖模型 key,
@@ -55,6 +58,13 @@ def main() -> int:
             print(f"API 服务依赖未安装({exc})。安装:pip install 'otter-agent[server]'", file=sys.stderr)
             return 2
         return serve(host=args.serve_host, port=args.serve_port)
+
+    # 2026-09-29 巡逻模式:只读 .otter/otter.db 做失败信号扫描,不调模型,
+    # 照 --serve 先例放在 api_key 检查之前分流
+    if args.patrol is not None:
+        from otter.patrol import run_patrol
+
+        return run_patrol(hours=args.patrol)
 
     config = Config.load()
     if args.model:

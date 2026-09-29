@@ -706,9 +706,13 @@ class AgentLoop:
                 messages.append(tool_msg)
                 await self.store.append_message(tool_msg, seq, run_id, conversation_id)
                 seq += 1
+                # 2026-09-29 巡逻:补 ok 字段——工具级失败此前被吞进 result 文本,
+                # events 表无法判成败;判据与 git 自动提交处同款([otter] 错误前缀)。
+                # 注:围栏/审批/参数校验等设计性拒绝同样 ok=False,归因在巡逻层做。
                 await self._emit(
                     run_id, "TOOL_COMPLETED",
-                    {"step": step, "name": tc.name, "result_chars": len(result_text)},
+                    {"step": step, "name": tc.name, "result_chars": len(result_text),
+                     "ok": not result_text.startswith("[otter] 错误")},
                 )
                 # 2026-09-23 artifact_publish → 广播含预览数据的产物事件
                 if tc.name == "artifact_publish":

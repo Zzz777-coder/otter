@@ -91,6 +91,9 @@ def test_happy_path_tool_then_final():
     assert roles == ["user", "assistant", "tool", "assistant"]
     assert store.messages[2].tool_call_id == "c1"
     assert store.run_status == ("completed", STOP_FINAL)
+    # 2026-09-29 巡逻配套:TOOL_COMPLETED 必须带 ok 字段(工具级成败判据)
+    tc_events = [p for t, p in store.events if t == "TOOL_COMPLETED"]
+    assert tc_events and tc_events[0]["ok"] is True
 
 
 def test_max_steps_triggers_zero_tool_finalization():
