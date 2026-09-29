@@ -306,6 +306,19 @@ check("R8 diffstat (+2/-1) 在行内(第4子元素)", linkLine.children[3]
 linkEl2.onclick();
 check("R5 再点收起", cardsInThread() === r5Base);
 
+// 8g. 回放补发文件链接行(2026-09-29 用户要求"界面能打开文件"):
+//     onHistory 只重建消息气泡,实时渲染的链接行回放丢失——onHistoryFiles
+//     在回放后补发,重建本会话的文件入口(点击现拉磁盘预览,与实时同链路)
+otterUI2.onHistory([]);
+otterUI2.onHistoryFiles([
+  { path: "cities.txt", name: "cities.txt", action: "已创建", plus: 15, minus: 0 },
+  { path: "summary.md", name: "summary.md", action: "已修改", plus: 3, minus: 1 },
+]);
+const replayLinks = threadEl.children.filter((c) => c._cl.has("file-changed"));
+check("onHistoryFiles 渲染 2 条文件链接行", replayLinks.length === 2);
+check("回放链接行含文件名", replayLinks[0] && replayLinks[0].querySelector(".file-link").textContent === "cities.txt");
+check("回放链接含 action 文案", replayLinks[0] && textOf(replayLinks[0]).includes("已创建"));
+
 // 9) 运行历史块渲染(2026-09-24 用户要求:整屏行分布记录块,取消左右分栏)。
 //    覆写 querySelector 返回持久 #runsList 桩 + 假 pywebview.api,断言块结构/如实中断标注/行内 Trace。
 //    loadRuns 是 async,收尾汇总挪进 IIFE 等 microtask 跑完再打印。

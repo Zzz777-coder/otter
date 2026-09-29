@@ -249,6 +249,40 @@ class Store:
             out.append(Message(role=role, content=content, tool_calls=tool_calls, name=name))
         return out
 
+    async def load_conversation_file_changes(self, cid: int) -> list[dict[str, Any]]:
+        """按会话取文件变更清单(2026-09-29 用户要求"界面能打开文件"):FILE_CHANGED
+        事件经 messages.conversation_id 归会话(与 _runs_rows 同口径——runs 表本身
+        无会话列,靠该 run 的消息归属)。同 path 只保留最后一次(最新 action/diffstat),
+        顺序按最后一次变更的时间。回放 payload 只留链接行所需字段:预览内容点击时经
+        preview_file 现拉磁盘(事件里的是当时快照,现拉永远是当前态,文件后续被改也准)。"""
+        cursor = await self._db.execute(
+            "SELECT e.id, e.payload_json FROM events e"
+            " WHERE e.type='FILE_CHANGED' AND e.run_id IN ("
+            "  SELECT DISTINCT run_id FROM messages WHERE conversation_id=? AND run_id IS NOT NULL)"
+            " ORDER BY e.id",
+            (cid,),
+        )
+        rows = await cursor.fetchall()
+        latest: dict[str, dict[str, Any]] = {}   # path → 链接行 payload(同 path 留最后)
+        last_id: dict[str, int] = {}             # path → 最后一次事件 id(排序用)
+        for eid, payload_json in rows:
+            try:
+                p = json.loads(payload_json)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            path = str(p.get("path") or p.get("name") or "")
+            if not path:
+                continue
+            latest[path] = {
+                "path": path,
+                "name": p.get("name") or path.rsplit("/", 1)[-1],
+                "action": p.get("action") or "已修改",
+                "plus": p.get("plus"),
+                "minus": p.get("minus"),
+            }
+            last_id[path] = eid
+        return sorted(latest.values(), key=lambda row: last_id[row["path"]])
+
     async def append_event(self, run_id: int, type_: str, payload: dict[str, Any]) -> None:
         await self._db.execute(
             "INSERT INTO events(run_id, type, payload_json, created_at) VALUES(?,?,?,?)",

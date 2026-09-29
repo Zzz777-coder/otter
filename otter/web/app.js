@@ -195,6 +195,16 @@ window.otterUI = {
     railDot("runs", true);  // 2026-09-24 rail 徽标:中断也是新历史
   },
   onConversations(convs) { renderConvs(convs); },
+  // 2026-09-29 用户要求(界面能打开文件):回放补发本会话文件变更链接行——
+  // onHistory 只重建消息气泡,实时渲染的 FILE_CHANGED 链接行回放时丢失,
+  // 重启后界面上没有文件入口;点击链接内联预览/打开(与实时链路同一函数)
+  onHistoryFiles(files) {
+    for (const p of files || []) {
+      try { showFileLink(p); } catch (e) {
+        (window.__errLog = window.__errLog || []).push("onHistoryFiles error: " + String(e));
+      }
+    }
+  },
   onDiffPreview(payload) { return showDiffCard(payload); },  // M3.5:返回 Promise,Python 侧等待采纳/拒绝
   onHistory(messages) {
     thread.innerHTML = "";

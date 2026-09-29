@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260929d"  # 20260929d:压缩卡默认一行收起,点击展开(真机反馈多卡重复刷屏)(index.html ?v= 同步)
+WEB_BUILD = "20260929e"  # 20260929e:回放补发文件链接行(界面能打开文件)(index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -393,6 +393,18 @@ class OtterWebGui:
                 gui._js("onHistory", [
                     {"role": m.role, "content": m.content, "name": m.name} for m in full
                 ])
+                # 2026-09-29 用户要求(界面能打开文件):回放后补发本会话的文件变更
+                # 链接行——链接行此前只在实时事件渲染,重启/切会话回放时不重建,
+                # 界面上没有文件入口,想看文件只能去 Finder(真机反馈"文件打不开")
+                fut = asyncio.run_coroutine_threadsafe(
+                    gui.store.load_conversation_file_changes(cid), gui.loop
+                )
+                try:
+                    files = fut.result(timeout=5)
+                except Exception:
+                    files = []  # 取失败不阻断回放(链接行是增强,不是主路径)
+                if files:
+                    gui._js("onHistoryFiles", files)
                 print(f"[switch] switched to {cid} via {path}, history={len(gui.history)}", flush=True)
                 fut = asyncio.run_coroutine_threadsafe(gui._conv_payload(), gui.loop)
                 gui._js("onConversations", fut.result(timeout=5))
@@ -1351,6 +1363,25 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
         errs = bad_errors()
         if errs:
             step("  __errLog[COMPACTED] 干净", False, errs)
+
+        # F. 回放文件链接行(2026-09-29 用户要求"界面能打开文件"):onHistory 后补发
+        #    onHistoryFiles 重建会话文件入口;点击现拉磁盘预览(真实跨桥+真实读盘)。
+        #    背景:链接行此前只在实时事件渲染,重启回放后界面上没有文件入口。
+        gui._js("onHistory", [])
+        await asyncio.sleep(0.2)
+        gui._js("onHistoryFiles", [{"path": str(samples["code"]), "name": samples["code"].name,
+                                    "action": "已修改", "plus": 3, "minus": 1}])
+        await asyncio.sleep(0.3)
+        step("onHistoryFiles 渲染文件链接行",
+             str(js("document.querySelector('.file-changed .file-link') !== null")) in ("true", "True"))
+        n0f = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
+        js("document.querySelector('.file-changed .file-link').onclick()")
+        await asyncio.sleep(0.5)
+        n1f = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
+        step("点击回放链接现拉磁盘预览 +1", n1f == n0f + 1, f"({n0f}→{n1f})")
+        errs = bad_errors()
+        if errs:
+            step("  __errLog[onHistoryFiles] 干净", False, errs)
 
         total = len(verdict)
         passed = sum(1 for _, ok in verdict if ok)

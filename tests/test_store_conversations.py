@@ -89,3 +89,37 @@ def test_delete_conversation_cascades(tmp_path):
         await s.close()
 
     asyncio.run(main())
+
+
+def test_conversation_file_changes_dedupe_and_order(tmp_path: Path):
+    """2026-09-29 界面能打开文件:按会话取 FILE_CHANGED 清单——同 path 留最后一次
+    (最新 action/diffstat),顺序按最后变更;回放 payload 不带预览内容(点击现拉)。"""
+
+    async def main() -> None:
+        store = Store(db_path=tmp_path / "otter.db")
+        await store.open()
+        cid = await store.new_conversation("文件会话")
+        rid = await store.new_run()
+        await store.append_message(Message(role="user", content="建文件"), 0, rid, conversation_id=cid)
+        await store.append_event(rid, "FILE_CHANGED",
+                                 {"path": "a.txt", "name": "a.txt", "action": "已创建",
+                                  "plus": 5, "minus": 0, "preview_type": "text", "content": "旧"})
+        await store.append_event(rid, "FILE_CHANGED",
+                                 {"path": "a.txt", "name": "a.txt", "action": "已修改",
+                                  "plus": 1, "minus": 1, "preview_type": "text", "content": "新"})
+        await store.append_event(rid, "FILE_CHANGED",
+                                 {"path": "b.md", "name": "b.md", "action": "已创建",
+                                  "plus": 2, "minus": 0})
+        # 其他会话的 run 不串进来
+        rid2 = await store.new_run()
+        await store.append_message(Message(role="user", content="别的"), 0, rid2, conversation_id=cid + 99)
+        await store.append_event(rid2, "FILE_CHANGED",
+                                 {"path": "别的.txt", "name": "别的.txt", "action": "已创建"})
+        files = await store.load_conversation_file_changes(cid)
+        assert [f["name"] for f in files] == ["a.txt", "b.md"]  # 按最后变更时间升序
+        a = next(f for f in files if f["path"] == "a.txt")
+        assert a["action"] == "已修改" and a["plus"] == 1       # 同 path 留最后一次
+        assert "content" not in a and "preview_type" not in a   # 回放不带快照,点击现拉
+        await store.close()
+
+    asyncio.run(main())
