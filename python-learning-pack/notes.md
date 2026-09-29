@@ -67,3 +67,8 @@ print(add(1, 2, base=10))   # 先打印调用信息,再输出 13
 - 永远加 `functools.wraps`,保住 `__name__` / `__doc__`。
 - wrapper 用 `*args, **kwargs` 透传,兼容任意签名。
 - 需要装饰器自己带配置(如超时时间、重试次数)时,再套一层:装饰器工厂返回真正的装饰器——见 `demo.py` 中的 `timer`。
+
+## 常见坑
+
+- 忘了 `return func(*args, **kwargs)`(只调用不返回),原函数的返回值会变成 `None`,而且 `wrapper` 里忘写 `return wrapper` 更直接:被装饰的名字直接成了 `None`。
+- 用 `@timer` 这种"能带参"的装饰器,却忘了内部要区分 `func is None` 的两种情况,结果 `@timer(repeat=3)` 报 `'int' object is not callable`——简单起见可以像 `demo.py` 里的 `simple_timer` 一样只做无参版本。
