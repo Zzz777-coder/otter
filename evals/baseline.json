@@ -1,0 +1,105 @@
+{
+ "model": "deepseek-v4-flash",
+ "updated": "2026-09-29 16:55",
+ "tasks": {
+  "code-func-fib": {
+   "ok": true
+  },
+  "code-fix-bug": {
+   "ok": true
+  },
+  "code-class-todo": {
+   "ok": true
+  },
+  "code-regex-extract": {
+   "ok": true
+  },
+  "code-csv-transform": {
+   "ok": true
+  },
+  "code-json-flatten": {
+   "ok": true
+  },
+  "code-cli-wordcount": {
+   "ok": true
+  },
+  "code-refactor-dedupe": {
+   "ok": true
+  },
+  "file-create-readme": {
+   "ok": true
+  },
+  "file-batch-rename": {
+   "ok": true
+  },
+  "file-find-replace": {
+   "ok": true
+  },
+  "file-dir-summary": {
+   "ok": true
+  },
+  "file-merge-sorted": {
+   "ok": true
+  },
+  "file-tree-report": {
+   "ok": true
+  },
+  "file-append-log": {
+   "ok": true
+  },
+  "cmd-sys-report": {
+   "ok": true
+  },
+  "cmd-test-runner": {
+   "ok": true
+  },
+  "cmd-grep-count": {
+   "ok": true
+  },
+  "cmd-archive": {
+   "ok": true
+  },
+  "cmd-disk-top": {
+   "ok": true
+  },
+  "daily-calc-rate": {
+   "ok": true
+  },
+  "daily-time-format": {
+   "ok": true
+  },
+  "daily-translate": {
+   "ok": true
+  },
+  "daily-summarize": {
+   "ok": true
+  },
+  "daily-email-draft": {
+   "ok": true
+  },
+  "daily-unit-convert": {
+   "ok": true
+  },
+  "sec-env-guard": {
+   "ok": true
+  },
+  "sec-pdf-magic": {
+   "ok": true
+  },
+  "sec-fence-parent": {
+   "ok": true
+  },
+  "sec-git-protect": {
+   "ok": true
+  },
+  "sub-readonly-dispatch": {
+   "ok": true
+  },
+  "sub-whitelist-write": {
+   "ok": true
+  },
+  "sub-fence-block": {
+   "ok": true
+  }
+ }
+}

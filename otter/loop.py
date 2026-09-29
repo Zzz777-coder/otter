@@ -120,6 +120,9 @@ class AgentResult:
     model_calls: int
     tool_calls: int
     usage: ModelUsage = field(default_factory=ModelUsage)
+    # 2026-09-29 评估③:本次 Run 的 id——子代理 dispatch 会 new_run 挂父 Run,
+    # 事后用 latest_run_id() 会错拿子代理的 run;结果对象自带才是权威口径
+    run_id: int | None = None
 
     def summary(self) -> str:
         tokens = "?"

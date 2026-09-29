@@ -160,6 +160,10 @@ async def _dispatch(loop: AgentLoop, store, history: list[Message], state: Summa
                             emitter.event("SKILL_DISTILLED", {"note": note})
             except Exception:
                 pass
+        # 2026-09-29 评估③:结果对象回填 run_id——子代理 dispatch 会 new_run 挂父
+        # Run,调用方事后用 latest_run_id() 会错拿子代理 run,自带口径才可靠
+        if result is not None:
+            result.run_id = run_id
         return result
     except KeyboardInterrupt:
         # 2026-09-24:Ctrl+C 终态从 failed 收敛为 cancelled(与 GUI 停止键/协作取消同语义;

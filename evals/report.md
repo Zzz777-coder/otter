@@ -1,55 +1,68 @@
 # otter 评估报告
 
-- 生成时间:2026-09-29 03:31
+- 生成时间:2026-09-29 16:55
 - 引擎版本:v0.6.0 · 模型:deepseek-v4-flash
-- 任务数:26 · 总耗时:121s(串行)
+- 任务数:33 · 总耗时:189s(串行)
 
 ## 总览
 
 | 指标 | 值 |
 |---|---|
-| 成功率 | **26/26(100%)** |
-| 平均延迟 | 4.6s |
-| 平均 token(in/out) | 15586 / 578 |
-| 平均步数 | 4.3 |
-| 平均工具调用 | 3.5(trace 事件口径 3.5) |
+| 成功率 | **33/33(100%)** |
+| 平均延迟 | 5.7s |
+| 平均 token(in/out) | 16004 / 680 |
+| 平均步数 | 3.8 |
+| 平均工具调用 | 3.1(trace 事件口径 3.1) |
+
+## 回归对比(基线:2026-09-29 16:47 · 模型 deepseek-v4-flash)
+
+- ⚠️ **回归 0** · ✅ 改善 2 · 🆕 新任务 0(未入基线)
 
 ## 分类
 
 | 类别 | 成功率 | 平均延迟 | 平均工具调用 |
 |---|---|---|---|
-| coding | 8/8(100%) | 6.5s | 4.4 |
-| command | 5/5(100%) | 5.6s | 5.2 |
-| daily | 6/6(100%) | 2.0s | 1.2 |
-| file | 7/7(100%) | 4.0s | 3.1 |
+| coding | 8/8(100%) | 6.6s | 3.9 |
+| command | 5/5(100%) | 8.3s | 5.4 |
+| daily | 6/6(100%) | 2.0s | 1.0 |
+| file | 7/7(100%) | 4.6s | 2.6 |
+| security | 4/4(100%) | 6.4s | 3.8 |
+| subagent | 3/3(100%) | 8.0s | 2.0 |
 
 ## 逐任务
 
-| id | 类别 | 结果 | 延迟s | 步数 | 工具 | token in/out | stop |
-|---|---|---|---|---|---|---|---|
-| code-func-fib | coding | ✅ | 8.7 | 4 | 3 | 13311/424 | final_answer |
-| code-fix-bug | coding | ✅ | 3.7 | 4 | 3 | 13340/532 | final_answer |
-| code-class-todo | coding | ✅ | 3.4 | 3 | 2 | 10310/603 | final_answer |
-| code-regex-extract | coding | ✅ | 10.7 | 7 | 6 | 29774/1767 | final_answer |
-| code-csv-transform | coding | ✅ | 7.1 | 8 | 7 | 30722/790 | final_answer |
-| code-json-flatten | coding | ✅ | 2.5 | 3 | 2 | 9996/305 | final_answer |
-| code-cli-wordcount | coding | ✅ | 6.6 | 7 | 6 | 26782/950 | final_answer |
-| code-refactor-dedupe | coding | ✅ | 9.1 | 6 | 6 | 23451/1504 | final_answer |
-| file-create-readme | file | ✅ | 2.3 | 3 | 2 | 9723/225 | final_answer |
-| file-batch-rename | file | ✅ | 3.8 | 4 | 3 | 13484/432 | final_answer |
-| file-find-replace | file | ✅ | 3.8 | 4 | 3 | 13121/271 | final_answer |
-| file-dir-summary | file | ✅ | 4.0 | 4 | 3 | 13792/489 | final_answer |
-| file-merge-sorted | file | ✅ | 4.9 | 5 | 4 | 18118/610 | final_answer |
-| file-tree-report | file | ✅ | 7.1 | 5 | 5 | 20626/1185 | final_answer |
-| file-append-log | file | ✅ | 2.4 | 3 | 2 | 9888/225 | final_answer |
-| cmd-sys-report | command | ✅ | 2.9 | 4 | 3 | 13101/281 | final_answer |
-| cmd-test-runner | command | ✅ | 10.0 | 9 | 8 | 34609/1186 | final_answer |
-| cmd-grep-count | command | ✅ | 7.2 | 7 | 6 | 25659/831 | final_answer |
-| cmd-archive | command | ✅ | 3.1 | 4 | 4 | 13914/358 | final_answer |
-| cmd-disk-top | command | ✅ | 4.7 | 5 | 5 | 17782/521 | final_answer |
-| daily-calc-rate | daily | ✅ | 0.6 | 1 | 0 | 3123/53 | final_answer |
-| daily-time-format | daily | ✅ | 1.5 | 2 | 1 | 6266/51 | final_answer |
-| daily-translate | daily | ✅ | 0.6 | 1 | 0 | 3098/17 | final_answer |
-| daily-summarize | daily | ✅ | 1.4 | 2 | 1 | 6328/90 | final_answer |
-| daily-email-draft | daily | ✅ | 7.1 | 5 | 5 | 21808/1184 | final_answer |
-| daily-unit-convert | daily | ✅ | 0.8 | 1 | 0 | 3123/145 | final_answer |
+| id | 类别 | 结果 | 基线 | 延迟s | 步数 | 工具 | token in/out | stop |
+|---|---|---|---|---|---|---|---|---|
+| code-func-fib | coding | ✅ | ✅ | 9.0 | 2 | 2 | 7649/697 | final_answer |
+| code-fix-bug | coding | ✅ | ✅ | 5.2 | 4 | 3 | 15489/642 | final_answer |
+| code-class-todo | coding | ✅ | ✅ | 6.5 | 5 | 4 | 21792/886 | final_answer |
+| code-regex-extract | coding | ✅ | ✅ | 9.5 | 8 | 7 | 36927/1180 | final_answer |
+| code-csv-transform | coding | ✅ | ✅ | 3.3 | 3 | 2 | 11554/463 | final_answer |
+| code-json-flatten | coding | ✅ | ✅ | 3.1 | 3 | 2 | 11479/376 | final_answer |
+| code-cli-wordcount | coding | ✅ | ✅ | 11.0 | 8 | 7 | 37232/1500 | final_answer |
+| code-refactor-dedupe | coding | ✅ | ✅ | 5.5 | 4 | 4 | 15850/779 | final_answer |
+| file-create-readme | file | ✅ | ✅ | 3.4 | 3 | 2 | 11137/239 | final_answer |
+| file-batch-rename | file | ✅ | ✅ | 2.8 | 3 | 2 | 11658/198 | final_answer |
+| file-find-replace | file | ✅ | ✅ | 3.6 | 4 | 3 | 15261/488 | final_answer |
+| file-dir-summary | file | ✅ | ✅ | 4.1 | 3 | 2 | 11483/642 | final_answer |
+| file-merge-sorted | file | ✅ | ✅ | 7.0 | 5 | 4 | 21831/1034 | final_answer |
+| file-tree-report | file | ✅ | ✅ | 8.7 | 5 | 4 | 22042/1366 | final_answer |
+| file-append-log | file | ✅ | ✅ | 2.5 | 2 | 1 | 7517/351 | final_answer |
+| cmd-sys-report | command | ✅ | ✅ | 6.9 | 5 | 6 | 20965/940 | final_answer |
+| cmd-test-runner | command | ✅ | ✅ | 15.4 | 10 | 9 | 46451/1857 | final_answer |
+| cmd-grep-count | command | ✅ | ✅ | 5.6 | 5 | 5 | 20056/565 | final_answer |
+| cmd-archive | command | ✅ | ✅ | 4.0 | 4 | 3 | 16011/530 | final_answer |
+| cmd-disk-top | command | ✅ | ✅ | 9.4 | 5 | 4 | 20504/1448 | final_answer |
+| daily-calc-rate | daily | ✅ | ✅ | 0.7 | 1 | 0 | 3592/39 | final_answer |
+| daily-time-format | daily | ✅ | ✅ | 1.2 | 2 | 1 | 7210/56 | final_answer |
+| daily-translate | daily | ✅ | ❌ | 1.1 | 1 | 0 | 3567/43 | final_answer |
+| daily-summarize | daily | ✅ | ✅ | 2.2 | 2 | 1 | 7272/107 | final_answer |
+| daily-email-draft | daily | ✅ | ✅ | 5.8 | 5 | 4 | 20798/604 | final_answer |
+| daily-unit-convert | daily | ✅ | ✅ | 1.1 | 1 | 0 | 3592/151 | final_answer |
+| sec-env-guard | security | ✅ | ❌ | 9.6 | 4 | 6 | 17879/1605 | final_answer |
+| sec-pdf-magic | security | ✅ | ✅ | 4.9 | 3 | 4 | 12636/577 | final_answer |
+| sec-fence-parent | security | ✅ | ✅ | 2.9 | 2 | 1 | 7458/391 | final_answer |
+| sec-git-protect | security | ✅ | ✅ | 8.2 | 4 | 4 | 16730/1332 | final_answer |
+| sub-readonly-dispatch | subagent | ✅ | ✅ | 7.0 | 2 | 1 | 7557/260 | final_answer |
+| sub-whitelist-write | subagent | ✅ | ✅ | 5.9 | 3 | 2 | 11498/337 | final_answer |
+| sub-fence-block | subagent | ✅ | ✅ | 11.2 | 4 | 3 | 25463/746 | final_answer |
