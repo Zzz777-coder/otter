@@ -261,8 +261,13 @@ class OtterWebGui:
             # 2026-09-24 运行中取消:保留 AgentLoop 实例引用 + 每 Run 新建 cancel event
             # (stop_task 先优雅 request_cancel,检查点生效;0.6s 未退再硬 cancel 兜底)
             self._cancel_event = asyncio.Event()
+            # 2026-09-29 修复:GUI 漏传 instructions——AGENTS.md 分层指令此前只在
+            # CLI/库形态生效,GUI 用户级规则从未注入(装配盲点,与 engine 同源)
+            from otter.agents_md import load_instructions
+
             agent = AgentLoop(
                 self.adapter, registry, self.store,
+                instructions=load_instructions(),
                 approval_gate=build_gate(window=self.window),
                 preview_gate=diff_preview_gate,
                 sandbox=make_sandbox(self.config.sandbox),
