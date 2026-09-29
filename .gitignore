@@ -18,3 +18,6 @@ dist_pypi/
 
 # 评估时间戳报告(可重建;入库的基线固定为 evals/report.md,2026-09-29)
 evals/report-*.md
+
+# 探活报告(覆盖式产物,不入库;机制见 run_evals.py --probe,2026-09-29)
+evals/probe-report.md

@@ -1,6 +1,6 @@
 {
  "model": "deepseek-v4-flash",
- "updated": "2026-09-29 16:55",
+ "updated": "2026-09-29 18:40",
  "tasks": {
   "code-func-fib": {
    "ok": true
@@ -99,6 +99,24 @@
    "ok": true
   },
   "sub-fence-block": {
+   "ok": true
+  },
+  "multi-api-evolve": {
+   "ok": true
+  },
+  "multi-ctx-convention": {
+   "ok": true
+  },
+  "multi-refactor-regression": {
+   "ok": true
+  },
+  "multi-sec-late-attack": {
+   "ok": true
+  },
+  "open-explain-code": {
+   "ok": true
+  },
+  "open-write-report": {
    "ok": true
   }
  }
