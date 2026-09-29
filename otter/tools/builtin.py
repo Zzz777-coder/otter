@@ -86,6 +86,10 @@ class ReadFileTool(Tool):
         start = max(1, int(args.get("start_line") or 1))
         if not path.is_file():
             return f"[otter] 错误:文件不存在或不是普通文件:{path}"
+        # 2026-09-29 #51:秘密文件读保护(与 SBPL 沙箱同规,堵工具层旁路)
+        denied = secret_file_denied(path)
+        if denied:
+            return denied
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
@@ -103,6 +107,19 @@ class ReadFileTool(Tool):
 # 执行层硬校验(与 PLAN 只读白名单同款 fail-closed 哲学):魔数不符即拒绝写入并
 # 给模型指明正确路径;发布层(artifact.py)再用同一助手函数拦 bash 伪造的文件。
 _BINARY_MAGIC = {".pdf": b"%PDF", ".docx": b"PK", ".xlsx": b"PK", ".pptx": b"PK"}
+
+
+# 2026-09-29 #51(评估②安全用例暴露):.env 的读保护此前只在 bash 沙箱层
+# (SBPL deny file-read-data .env),read_file/grep/edit_file 是旁路——模型
+# 用 read_file 即可拿到凭据。工具层与沙箱同规,堵齐读向(写向走审批,已有把关)。
+def secret_file_denied(path: Path) -> str | None:
+    """秘密文件(.env 系,含绝对路径如 ~/.otter/.env)读保护。
+    命中返回拒绝文案;未命中返回 None(放行)。"""
+    name = path.name
+    if name == ".env" or name.startswith(".env."):
+        return (f"[otter] 错误:拒绝读取秘密文件 {path}(.env 含凭据,与命令沙箱同规)。"
+                "如确需某个配置项,请让用户直接提供键值")
+    return None
 
 
 def fake_binary_hint(suffix: str, head: bytes) -> str | None:
@@ -172,6 +189,10 @@ class EditFileTool(Tool):
             return "[otter] 错误:old_str 为空"
         if not path.is_file():
             return f"[otter] 错误:文件不存在:{path}"
+        # 2026-09-29 #51:秘密文件同拒编辑——old_str 命中与否本身就是内容探测通道
+        denied = secret_file_denied(path)
+        if denied:
+            return denied
         text = path.read_text(encoding="utf-8")
         count = text.count(old)
         if count == 0:
@@ -221,6 +242,9 @@ class GrepTool(Tool):
             if not p.is_file():
                 continue
             if any(part in self._SKIP_DIRS for part in p.parts):
+                continue
+            # 2026-09-29 #51:秘密文件跳过(批量扫描场景静默跳过;文件名本身不泄密)
+            if secret_file_denied(p):
                 continue
             scanned += 1
             try:
