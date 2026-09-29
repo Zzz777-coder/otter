@@ -326,6 +326,19 @@ check("无新文件时不再出文件卡",
         && paneEl.querySelector(".pane-close") !== null);
 })();
 
+// 8f2. 实时多段同块(2026-09-29 一次回复一个头像):工具轮间隔的两段正文
+//      (MODEL_STARTED 不再收口开新块)合并进同一个 assistant 块
+const asstBase = threadEl.children.filter((c) => c._cl.has("msg-assistant")).length;
+otterUI2.onEvent({ type: "MODEL_STARTED", step: 5, mode: "normal" });
+otterUI2.onDelta("段A");
+otterUI2.onEvent({ type: "MODEL_STARTED", step: 6, mode: "normal" });
+otterUI2.onDelta("段B");
+otterUI2.onDone({ summary: "两段", final_text: "" });
+const asstBlocks = threadEl.children.filter((c) => c._cl.has("msg-assistant"));
+check("实时多段同块(一次回复一个头像)", asstBlocks.length === asstBase + 1);
+check("同块两段 .md-chunk", asstBlocks.length > 0
+      && asstBlocks[asstBlocks.length - 1].querySelector(".body").querySelectorAll(".md-chunk").length === 2);
+
 // 8g. 回放补发文件(2026-09-29 用户终版):onHistoryFiles 以「产出文件」卡统一
 //     收尾(不再链接行),胶囊同步重灌
 otterUI2.onHistory([]);
@@ -745,6 +758,24 @@ check("面板行含预览/打开按钮", artRows[0] && artRows[0].querySelectorA
     check("回放过程线唯一(不再分段)", boxes.length === 1);
     check("唯一线含全部 3 步", boxes.length === 1
       && String(boxes[0].querySelector(".proc-log-head").textContent).includes("3 步"));
+
+    // 2026-09-29 一次回复一个头像(用户要求):同一轮的多段正文(工具轮间隔)合并进
+    // 同一个 assistant 块(.md-chunk 分段);user 提问才断块
+    tEl.children = [];
+    ui.onHistory([
+      { role: "user", content: "问1" },
+      { role: "assistant", content: "先说一句" },
+      { role: "tool", content: "结果", name: "bash" },
+      { role: "assistant", content: "最终回答" },
+      { role: "user", content: "问2" },
+      { role: "assistant", content: "第二答" },
+    ]);
+    const asst = tEl.children.filter((c) => c._cl && c._cl.has("msg-assistant"));
+    check("回放一次提问一个头像(两问两块)", asst.length === 2);
+    check("多段正文合块分段(块1 两段)", asst[0]
+          && asst[0].querySelector(".body").querySelectorAll(".md-chunk").length === 2);
+    check("第二问单段", asst[1]
+          && asst[1].querySelector(".body").querySelectorAll(".md-chunk").length === 1);
   }
 
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);

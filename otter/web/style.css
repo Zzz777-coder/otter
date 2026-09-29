@@ -580,3 +580,6 @@ body, .bubble, .body, .meta, .panel, #convList { -webkit-user-select: text; user
   border-bottom: 1px dotted var(--accent); cursor: pointer;
 }
 .file-link:hover { border-bottom-style: solid; }
+
+/* 2026-09-29 一次回复一个头像:同一 assistant 块内的多段正文(工具轮间隔)段间距 */
+.md-chunk + .md-chunk { margin-top: 12px; }

@@ -20,7 +20,9 @@ let pendingChars = 0;
 let thinkingEl = null;
 let taskStartTime = 0;
 let thinkingTimer = null;
-let rawBuf = "";           // 2026-09-22 流式渲染:当前块的原始 markdown 缓冲
+let rawBuf = "";           // 2026-09-22 流式渲染:当前段的原始 markdown 缓冲
+let currentChunk = null;   // 2026-09-29 用户要求"一次回复一个头像":同一轮的多段正文
+                           // 各占一个 .md-chunk,合并在同一个 assistant 块里
 let streamRenderTimer = null;
 
 function fmtElapsed(ms) {
@@ -75,8 +77,8 @@ function scheduleStreamRender() {
   if (streamRenderTimer) return;
   streamRenderTimer = setTimeout(() => {
     streamRenderTimer = null;
-    if (currentAssistant) {
-      renderMarkdown(currentAssistant.querySelector(".body"), rawBuf);
+    if (currentAssistant && currentChunk) {
+      renderMarkdown(currentChunk, rawBuf);  // 2026-09-29:渲染进当前段,不再整块替换
       scrollBottom();
     }
   }, 120);
@@ -104,11 +106,9 @@ window.otterUI = {
   },
   onDelta(text) {
     pendingChars += text.length;
-    if (!currentAssistant) {          // 首 delta:开流式块(思考行保留,钉在底部)
-      startAssistant();
-      rawBuf = "";
-      // 2026-09-29 用户终版:不再断块——所有思考/工具过程永远进同一条折叠线
-    }
+    // 2026-09-29:惰性建块与段(块=头像单元,段=工具轮间隔的一段正文)——
+    // 同轮多段进同一块,用户看到"一次回复一个头像"
+    ensureChunk();
     rawBuf += text;
     scheduleStreamRender();
     refreshThinking();
@@ -124,7 +124,9 @@ window.otterUI = {
     // 整体失败且被 pywebview 静默吞掉(前端表现为"事件随机丢"),现在至少落 __errLog 可查
     try {
     // 2026-09-23:PLAN 模式的 step 行加徽标(模式已常驻,run 级 mode 随事件携带)
-    if (type === "MODEL_STARTED") { finalizeAssistant(); rawBuf = ""; ensureThinking(); meta("system", `${p.via ? "🦦" + p.via + " · " : ""}step ${p.step}${p.mode === "plan" ? " · PLAN" : ""}`); }
+    // 2026-09-29 用户要求"一次回复一个头像":MODEL_STARTED 不再收口开新块——
+    // 工具轮只是换一段(currentChunk 置空,下段正文续进同一头像块)
+    if (type === "MODEL_STARTED") { rawBuf = ""; currentChunk = null; ensureThinking(); meta("system", `${p.via ? "🦦" + p.via + " · " : ""}step ${p.step}${p.mode === "plan" ? " · PLAN" : ""}`); }
     else if (type === "TOOL_STARTED") {
       const args = JSON.stringify(p.arguments || {});
       meta("tool", `${p.via ? "🦦" + p.via + " · " : ""}⚡ ${p.name} ${args.length > 130 ? args.slice(0, 130) + "…" : args}`);
@@ -176,7 +178,8 @@ window.otterUI = {
       finalizeAssistant();
     } else if ((payload.final_text || "").trim()) {
       startAssistant();
-      renderMarkdown(currentAssistant.querySelector(".body"), payload.final_text);
+      const text = payload.final_text;
+      renderMarkdown(ensureChunk(), text);  // 2026-09-29:终文本渲染进段(ensureChunk 清缓冲,先存)
       finalizeAssistant();
     }
     rawBuf = "";
@@ -225,17 +228,24 @@ window.otterUI = {
     // 节点,后续 ensureThinking 不重建、insertBefore 抛 NotFoundError(事件整批丢失)
     hideThinkingKeepTimer();
     for (const m of messages) {
-      if (m.role === "user") addUser(m.content || "");
-      else if (m.role === "assistant") {
+      if (m.role === "user") {
+        finalizeAssistant();  // 2026-09-29:用户提问才断块——一次提问的多段回复合并在同一个头像块
+        addUser(m.content || "");
+      } else if (m.role === "assistant") {
         if (!(m.content || "").trim()) continue;
-        startAssistant();
-        renderMarkdown(currentAssistant.querySelector(".body"), m.content);
-        finalizeAssistant();
+        // 块在则续段(每条 assistant 消息=一段),不在则开块:连续 assistant
+        // 消息(工具轮间隔)合并在同一个头像块里
+        if (!currentAssistant) startAssistant();
+        currentChunk = document.createElement("div");
+        currentChunk.className = "md-chunk";
+        currentAssistant.querySelector(".body").appendChild(currentChunk);
+        renderMarkdown(currentChunk, m.content);
       } else if (m.role === "tool") {
         const firstLine = (m.content || "").split("\n").find((l) => l.trim()) || "";
         meta("tool", `⚡ ${m.name || "tool"} ${firstLine.slice(0, 80)}`);
       }
     }
+    finalizeAssistant();  // 回放收尾:最后一块落定
     scrollBottom();
   },
 };
@@ -330,6 +340,20 @@ function startAssistant() {
   div.innerHTML = `<div class="author"><div class="avatar"></div><span class="name">otter</span></div><div class="body"></div>`;
   insertAboveThinking(div);
   currentAssistant = div;
+  currentChunk = null;  // 2026-09-29:新块新段落(currentChunk 由首个 delta 惰性建)
+}
+
+// 2026-09-29 用户要求"一次回复一个头像":同一轮 Run 的多段正文(工具调用间隔
+// 产生)各建一个 .md-chunk 追加进当前块,不再每段各起一个头像块
+function ensureChunk() {
+  if (!currentAssistant) startAssistant();
+  if (!currentChunk) {
+    currentChunk = document.createElement("div");
+    currentChunk.className = "md-chunk";
+    currentAssistant.querySelector(".body").appendChild(currentChunk);
+    rawBuf = "";
+  }
+  return currentChunk;
 }
 
 function finalizeAssistant() {
@@ -337,9 +361,11 @@ function finalizeAssistant() {
   currentAssistant.classList.remove("busy");
   if (streamRenderTimer) { clearTimeout(streamRenderTimer); streamRenderTimer = null; }
   if (rawBuf.trim()) {
-    renderMarkdown(currentAssistant.querySelector(".body"), rawBuf);  // 收尾兜底:缓冲若有残留立即终渲染
+    const text = rawBuf;                     // ensureChunk 建新段会清缓冲,先存文本
+    renderMarkdown(ensureChunk(), text);  // 收尾兜底:缓冲若有残留立即终渲染进当前段
   }
   currentAssistant = null;
+  currentChunk = null;
 }
 
 // ── diff 预览卡片(M3.5):GUI 侧展示变更,采纳后写盘(preview_gate 在 Python 侧)──

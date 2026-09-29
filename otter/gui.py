@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260929g"  # 20260929g:过程线全会话唯一+文件统一收尾输出+右侧预览栏(index.html ?v= 同步)
+WEB_BUILD = "20260929h"  # 20260929h:一次回复一个头像(多段正文同块分段)(index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -1353,18 +1353,27 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
         if errs:
             step("  __errLog[FILE_CHANGED] 干净", False, errs)
 
-        # D2. 真实 WKWebView 过程线唯一(2026-09-29 根因修复的权威断言):
-        #     procLogEnsure 守卫原用 ._parent——那是 node 桩的私有属性,真实 DOM
-        #     节点上恒 undefined → 守卫恒失效 → 真机每条过程行各建一个折叠块
-        #     (用户看到"每一行折叠成一条横线");改标准 parentNode 后全会话一条线。
-        #     连发两轮事件(轮间有正文/收口),块数必须仍为 1
+        # D2. 真实 WKWebView 权威断言(2026-09-29 终版两件):
+        #     ①过程线唯一:procLogEnsure 守卫原用 ._parent(桩私有属性,真实 DOM 恒
+        #       undefined)→真机每条过程行各建一块;改 parentNode 后全会话一条线。
+        #     ②一次回复一个头像:单个 Run 内两段正文(工具轮间隔,两次 MODEL_STARTED
+        #       之间无 onDone)必须落进同一个 assistant 块——旧逻辑每段各起一块,
+        #       用户看到"问一次冒 n 个头像"。清屏后单 Run 两段验证。
+        gui._js("onHistory", [])
+        await asyncio.sleep(0.2)
         for i in (1, 2):
             emit_event("MODEL_STARTED", {"step": i, "mode": "normal"})
-            gui._js("onDelta", f"第{i}轮正文 ")
-            gui._js("onDone", {"summary": f"done{i}", "final_text": ""})
+            gui._js("onDelta", f"第{i}段正文 ")
             await asyncio.sleep(0.2)
+        gui._js("onDone", {"summary": "done(单Run两段)", "final_text": ""})
+        await asyncio.sleep(0.2)
         step("过程折叠线全会话唯一(真机守卫修复)",
              str(js("document.querySelectorAll('.proc-log').length")) in ("1",))
+        step("单Run两段正文同一头像块(一次回复一个头像)",
+             str(js("document.querySelectorAll('#thread > .msg-assistant').length")) in ("1",)
+             and str(js("document.querySelectorAll('#thread .md-chunk').length")) in ("2",),
+             f"blocks={js("document.querySelectorAll('#thread > .msg-assistant').length")} "
+             f"chunks={js("document.querySelectorAll('#thread .md-chunk').length")}")
 
         # E. 压缩摘要卡(2026-09-29 用户要求仿 codex;同日真机反馈改版:默认一行收起,
         #    点击展开):CONTEXT_COMPACTED 带 summary → 收起卡;点 head 展开;
