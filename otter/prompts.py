@@ -1,8 +1,8 @@
 """otter 提示词套件——全部模型提示词的单一来源(2026-09-23 提示词套件重构)。
 
-设计参照(2026-09-24 公开库去第三方溯源,来源明细移出代码):
+设计要点(五段式+四项技术,2026-09-23 定稿):
 - 五段式纪律(身份/工具纪律/压缩意识/产物发布),每段一个纪律、直接行为指令、不讲格式课;
-- 四个可迁移技术:正反例清单(artifact_usage_criteria)、决策示例(examples)、
+- 四项技术:正反例清单(artifact_usage_criteria)、决策示例(examples)、
   工具调用量化 Scaling(core_search_behaviors)、反幻觉规则(UNRECOGNIZED ENTITY RULE)。
 
 注入点速查(详细说明见桌面《otter-提示词套件.md》):
