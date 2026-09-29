@@ -104,14 +104,20 @@ class EmbeddingClient:
 
 
 def build_embed_client_from_env() -> EmbeddingClient | None:
-    """按环境配置构造 Embedding 客户端;未配置模型名 → None(向量分支关闭)。"""
+    """按环境配置构造 Embedding 客户端;未配置模型名 → None(向量分支关闭)。
+
+    2026-09-29 补 OTTER_EMBED_API_KEY:embedding 与 chat 厂商可不同
+    (如 DeepSeek 聊天 + 硅基流动 embedding),此时各用各的 key;
+    缺省回退主 key(同厂商或 Ollama 本地不校验 key 的场景无感)。
+    """
     import os
 
     model = os.environ.get("OTTER_EMBED_MODEL", "")
     if not model:
         return None
     base = os.environ.get("OTTER_EMBED_BASE_URL") or os.environ.get("OTTER_BASE_URL", "")
-    key = os.environ.get("OTTER_API_KEY", "")
+    key = (os.environ.get("OTTER_EMBED_API_KEY")
+           or os.environ.get("OTTER_API_KEY", ""))
     if not (base and key):
         return None
     return EmbeddingClient(base, key, model)

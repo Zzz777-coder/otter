@@ -133,3 +133,24 @@ def test_doc_search_semantic_and_lexical(tmp_path: Path, monkeypatch):
     # 未配置 Embedding:纯词法仍可用(降级路径)
     hits3 = asyncio.run(doc_hybrid_search(tmp_path, "通勤", limit=2))
     assert hits3 and "traffic.md" in hits3[0].key
+
+
+def test_embed_client_env_config(monkeypatch, tmp_path: Path):
+    """Embedding 客户端环境配置:未配模型→None;独立 key 优先;缺省回退主 key。"""
+    from otter.rag import build_embed_client_from_env
+
+    monkeypatch.delenv("OTTER_EMBED_MODEL", raising=False)
+    assert build_embed_client_from_env() is None  # 未配置=向量分支关闭
+
+    env = {"OTTER_EMBED_MODEL": "bge-m3", "OTTER_EMBED_BASE_URL": "http://localhost:11434/v1"}
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("OTTER_API_KEY", "sk-main")
+    monkeypatch.delenv("OTTER_EMBED_API_KEY", raising=False)
+    c = build_embed_client_from_env()
+    assert c is not None and c.model == "bge-m3"
+    # 缺省回退主 key(同厂商或 Ollama 不校验场景)
+    assert c._key == "sk-main"
+    # 2026-09-29 补:embedding 厂商与 chat 不同时,独立 key 优先
+    monkeypatch.setenv("OTTER_EMBED_API_KEY", "sk-embed")
+    assert build_embed_client_from_env()._key == "sk-embed"
