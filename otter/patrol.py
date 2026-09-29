@@ -1,4 +1,4 @@
-"""运行时失败信号巡逻(bug 监测第 1+2 层,2026-09-29)。
+"""运行时失败信号巡逻(bug 监测第 1+2+4 层,2026-09-29)。
 
 第 1 层 scan_run / scan_recent:从 runs 表 + events 表提取失败信号——
     模型错误 / 预算硬停 / 异常中断 / 审批拒绝风暴 / 协议空响应重试 / 工具失败风暴。
@@ -6,9 +6,12 @@
 第 2 层 run_patrol:CLI `otter --patrol [hours]` 入口,汇总终端报告;
     有 high 信号时退出码 1(可直接接 cron/脚本),并弹 macOS 桌面通知
     (一次一条汇总,防逐条刷屏;通知失败静默,绝不影响巡逻本身)。
+第 4 层(2026-09-29)自动归档:巡逻发现 high 时,该 Run 的现场包自动留存到
+    <workspace>/.otter/incidents/run-<id>/(见 otter/incident.py);一个 Run
+    只留一次,归档失败静默不反噬巡逻。
 
 语义约定(第 1 层的"失败"分级):
-    high   引擎层故障——模型错误、Run failed(status/stop_reason)
+    high   引擎层故障——模型错误、Run failed(status/stop_reason)→ 触发第 4 层归档
     medium 行为异常——异常中断(kill)、预算硬停、重复工具截停、审批拒绝风暴、协议重试
     low    观察信号——工具失败/拒绝 ≥3 次(含围栏等设计性拒绝,只统计不归因)、max_steps 截停
     用户主动 cancelled 与干净的 completed/final_answer 不产生任何发现。
@@ -146,26 +149,49 @@ def notify_macos(title: str, body: str) -> bool:
 
 
 def run_patrol(hours: float = 24.0, workspace: Path | None = None,
-               notify: bool = True) -> int:
+               notify: bool = True, archive: bool = True) -> int:
     """巡逻同步入口(CLI 直调):读当前工作区 .otter/otter.db → 扫描 → 报告。
 
     返回码:0=干净(或无库);1=存在 high 信号(可接 cron 告警)。
+    archive=True(默认):发现 high 自动归档事故包(第 4 层,2026-09-29)。
     """
     db_path = (workspace or Path.cwd()) / ".otter" / "otter.db"
     if not db_path.exists():
         print(f"[patrol] 未找到运行库({db_path}),该工作区还没有跑过任务,无需巡逻。")
         return 0
 
-    async def _scan() -> tuple[list[Finding], int]:
+    async def _scan() -> tuple[list[Finding], int, list[Path]]:
         store = Store(db_path)
         await store.open()
         try:
-            return await scan_recent(store, hours)
+            findings, scanned = await scan_recent(store, hours)
+            # 第 4 层(2026-09-29):high 的 Run 自动留存事故包(去重;失败静默)
+            archived: list[Path] = []
+            if archive:
+                from otter.incident import archive_incident
+                from dataclasses import asdict
+
+                high_runs: dict[int, dict] = {}
+                for run in await store.recent_runs(hours):
+                    for f in findings:
+                        if f.severity == "high" and f.run_id == run["id"]:
+                            high_runs[run["id"]] = run
+                for rid, run in high_runs.items():
+                    fs = [asdict(f) for f in findings if f.run_id == rid]
+                    path = await archive_incident(store, run, fs, db_path.parent.parent)
+                    if path is not None:
+                        archived.append(path)
+            return findings, scanned, archived
         finally:
             await store.close()
 
-    findings, scanned = asyncio.run(_scan())
+    findings, scanned, archived = asyncio.run(_scan())
     print(render_report(findings, scanned, hours))
+    if archived:
+        # 事故包路径必须打出来(否则归档了没人知道去哪找)
+        print("\n📦 已归档事故包(第 4 层,高危 Run 现场):")
+        for p in archived:
+            print(f"  - {p}")
 
     highs = [f for f in findings if f.severity == "high"]
     if notify and findings:
