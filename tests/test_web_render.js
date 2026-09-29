@@ -215,6 +215,15 @@ const plogMetas = () => {
 };
 check("#44 单对象 onEvent:MODEL_STARTED 渲染过程块", !!plog && plogMetas() === 1);
 check("#44 单对象 onEvent:思考行在 thread 中", threadEl.querySelectorAll(".thinking").length === 1);
+// 2026-09-29 子代理过程行 via 徽标:事件带 via=角色标记时行首显示 🦦角色
+const plogTexts = () => {
+  const b = plog && plog.querySelector(".proc-log-body");
+  return (b ? b.children : []).map((c) => c.textContent || "").join("\n");
+};
+otterUI2.onEvent({ type: "MODEL_STARTED", step: 2, mode: "normal", via: "worker2" });
+check("via 徽标:worker2 过程行含 🦦 标记", plogTexts().includes("🦦worker2"));
+otterUI2.onEvent({ type: "TOOL_STARTED", step: 2, name: "write_file", arguments: { path: "a.md" }, via: "subagent" });
+check("via 徽标:subagent 工具行含 🦦 标记", plogTexts().includes("🦦subagent") && plogTexts().includes("write_file"));
 
 // 8b. 单对象契约(#44):ARTIFACT 渲染 meta 行 + 完整卡片(ok 行不进折叠块)
 otterUI2.onEvent({ type: "ARTIFACT", path: "demo/sample.py", name: "sample.py", note: "回归",
@@ -224,8 +233,10 @@ check("#44 ARTIFACT:完整卡片渲染", cardsInThread() === 1);
 
 // 8c. 双参形态兼容(#44 修复采用双形态兼容,别把旧调用方断掉)
 // 2026-09-28:WARNING(system 类)进过程块——断言块内行数增长
+// 2026-09-29:基线现取(上方 via 徽标用例已往块里加行,写死 2 会脆)
+const beforeDual = plogMetas();
 otterUI2.onEvent("RUN_BUDGET_WARNING", { used: 10, budget: 100 });
-check("#44 双参形态仍兼容", plogMetas() === 2);
+check("#44 双参形态仍兼容", plogMetas() === beforeDual + 1);
 
 // 8d. 悬空 thinkingEl 自愈(#43):onHistory 清屏(innerHTML="")后事件照常渲染
 otterUI2.onHistory([]);
