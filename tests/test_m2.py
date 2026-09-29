@@ -32,6 +32,14 @@ def test_engine_default_and_precedence(tmp_path: Path):
     assert engine.decide("bash", {"command": "git status"}) == DENY
 
 
+def test_readonly_general_tools_allow():
+    # 2026-09-29 #55 回归:只读通用工具必须默认 ALLOW——此前未列落到 ASK,
+    # dispatch 子代理内审批无人可点被 fail-closed 拒绝(真机暴露 run45 current_time)
+    engine = PermissionEngine(rules_file=Path("/nonexistent-55.json"))
+    for tool in ("current_time", "web_fetch", "calculate"):
+        assert engine.decide(tool, {}) == ALLOW, tool
+
+
 def test_engine_rules_file_roundtrip(tmp_path: Path):
     f = tmp_path / "permissions.json"
     engine = PermissionEngine(rules_file=f)

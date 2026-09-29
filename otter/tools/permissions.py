@@ -44,6 +44,12 @@ DEFAULT_RULES: list[tuple[str, str | None, str]] = [
     ("edit_file", None, ALLOW),
     ("make_pdf", None, ALLOW),  # 2026-09-24 R6:原生 PDF 生成(输出必带 %PDF 魔数,只写工作区)
     ("bash", None, ALLOW),  # 2026-09-23 用户要求:agent 可访问任意路径,不再逐条审批
+    # 2026-09-29 #55 修复:三个只读通用工具未列 → 落到 ASK → 每次弹审批框;
+    # 且 dispatch 子代理内审批无人可点被 fail-closed 拒绝(真机暴露:子代理查
+    # 当前时间失败,模型退化后自己调用还额外弹框)
+    ("current_time", None, ALLOW),  # 纯读系统时钟,无副作用
+    ("web_fetch", None, ALLOW),  # 只读抓网页;bash 已 ALLOW(可 curl),口径保持一致
+    ("calculate", None, ALLOW),  # 纯本地算术,无副作用
 ]
 
 RULES_FILE = Path.home() / ".otter" / "permissions.json"
