@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260929e"  # 20260929e:回放补发文件链接行(界面能打开文件)(index.html ?v= 同步)
+WEB_BUILD = "20260929f"  # 20260929f:会话产物胶囊(N个产物+面板)+链接行单击打开双击预览(index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -1322,14 +1322,15 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
         step("FILE_CHANGED 链接行渲染",
              str(js("document.querySelector('.file-changed .file-link') !== null")) in ("true", "True"))
         n0 = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        js("document.querySelector('.file-changed .file-link').onclick()")
+        # 2026-09-29 用户定交互:单击=系统打开(不点,免真开程序),双击=内联预览
+        js("document.querySelector('.file-changed .file-link').ondblclick()")
         await asyncio.sleep(0.3)
         n1 = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        step("点击文件名内联展开预览卡 +1", n1 == n0 + 1, f"({n0}→{n1})")
-        js("document.querySelector('.file-changed .file-link').onclick()")
+        step("双击文件名内联展开预览卡 +1", n1 == n0 + 1, f"({n0}→{n1})")
+        js("document.querySelector('.file-changed .file-link').ondblclick()")
         await asyncio.sleep(0.3)
         n2 = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        step("再点文件名收起预览卡", n2 == n0, f"({n1}→{n2})")
+        step("再双击文件名收起预览卡", n2 == n0, f"({n1}→{n2})")
         errs = bad_errors()
         if errs:
             step("  __errLog[FILE_CHANGED] 干净", False, errs)
@@ -1375,13 +1376,33 @@ def _artifact_probe_coroutine(gui: "OtterWebGui") -> None:
         step("onHistoryFiles 渲染文件链接行",
              str(js("document.querySelector('.file-changed .file-link') !== null")) in ("true", "True"))
         n0f = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        js("document.querySelector('.file-changed .file-link').onclick()")
+        # 2026-09-29 用户定交互:单击=系统打开(不点),双击=内联预览
+        js("document.querySelector('.file-changed .file-link').ondblclick()")
         await asyncio.sleep(0.5)
         n1f = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
-        step("点击回放链接现拉磁盘预览 +1", n1f == n0f + 1, f"({n0f}→{n1f})")
+        step("双击回放链接现拉磁盘预览 +1", n1f == n0f + 1, f"({n0f}→{n1f})")
         errs = bad_errors()
         if errs:
             step("  __errLog[onHistoryFiles] 干净", False, errs)
+
+        # G. 会话产物胶囊(2026-09-29 用户要求仿 codex「N artifacts」):回放重灌后
+        #    胶囊在聊天流顶部;点开=文件面板(名称+预览/打开);预览按钮现拉磁盘
+        step("产物胶囊渲染",
+             str(js("document.querySelector('.art-bar .art-pill') !== null")) in ("true", "True"))
+        step("胶囊计数正确",
+             "1 个产物" in str(js("document.querySelector('.art-bar .art-pill')?.textContent || ''")))
+        js("document.querySelector('.art-bar .art-pill').onclick()")
+        await asyncio.sleep(0.2)
+        step("胶囊点开面板含文件行",
+             str(js("document.querySelectorAll('.art-panel .art-row').length")) in ("1",))
+        n0g = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
+        js("document.querySelector('.art-panel .art-btn').onclick()")  # 预览按钮
+        await asyncio.sleep(0.5)
+        n1g = int(js("document.querySelectorAll('.artifact-preview-card').length") or 0)
+        step("面板预览按钮现拉磁盘 +1", n1g == n0g + 1, f"({n0g}→{n1g})")
+        errs = bad_errors()
+        if errs:
+            step("  __errLog[art-bar] 干净", False, errs)
 
         total = len(verdict)
         passed = sum(1 for _, ok in verdict if ok)

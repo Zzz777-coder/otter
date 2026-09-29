@@ -142,9 +142,10 @@ window.otterUI = {
       }
       railDot("artifacts", true);  // 2026-09-24 rail 徽标:有新交付物,artifacts 键亮点
     }
-    // 2026-09-24 R5(用户要求):写类工具成功 → 📎 链接行(图标+文件名超链接,点击 chat 内预览)
+    // 2026-09-24 R5(用户要求):写类工具成功 → 📎 链接行(图标+文件名超链接);
+    // 2026-09-29 仿 codex:同数据喂顶部产物胶囊(会话内文件统一收纳入口)
     else if (type === "FILE_CHANGED") {
-      try { showFileLink(p); } catch (e) {
+      try { showFileLink(p); barAdd(p); } catch (e) {
         (window.__errLog = window.__errLog || []).push("showFileLink error: " + String(e));
       }
     }
@@ -199,8 +200,9 @@ window.otterUI = {
   // onHistory 只重建消息气泡,实时渲染的 FILE_CHANGED 链接行回放时丢失,
   // 重启后界面上没有文件入口;点击链接内联预览/打开(与实时链路同一函数)
   onHistoryFiles(files) {
+    barClear();  // 回放重灌:先丢旧会话数据(胶囊/链接行随 onHistory 已清)
     for (const p of files || []) {
-      try { showFileLink(p); } catch (e) {
+      try { showFileLink(p); barAdd(p); } catch (e) {
         (window.__errLog = window.__errLog || []).push("onHistoryFiles error: " + String(e));
       }
     }
@@ -210,6 +212,7 @@ window.otterUI = {
     thread.innerHTML = "";
     currentAssistant = null;
     procLog = null;  // 2026-09-28 回放过程块按 assistant 分段重建
+    barClear();  // 2026-09-29 产物胶囊随清屏重置(数据由 onHistoryFiles 重灌)
     // 修复(2026-09-23 #43):清空 thread 后必须复位 thinkingEl——否则它指向已分离
     // 节点,后续 ensureThinking 不重建、insertBefore 抛 NotFoundError(事件整批丢失)
     hideThinkingKeepTimer();
@@ -447,13 +450,101 @@ function showArtifactCard(p) {
   mountAboveThinking(buildArtifactCard(p));  // #43:统一挂载(含悬空守卫)
 }
 
+// ── 2026-09-29 会话产物胶囊(用户要求仿 codex「N artifacts」)──
+// 本会话涉及的文件统一收纳在聊天流顶部的胶囊里,点开是文件面板(每行:文件名+
+// 预览/打开按钮);消息流中的链接行保留(上下文位置有意义)。数据来源:实时
+// FILE_CHANGED + 回放 onHistoryFiles,同 path 覆盖留最新状态;切会话清空。
+let artifactsBar = null;   // {el, files: Map<path,payload>, open}
+function barEnsure() {
+  // 悬空守卫(与 thinkingEl 同款):onHistory/#newConv 清屏后旧节点已分离,重建
+  if (artifactsBar && artifactsBar.el.parentNode !== thread) artifactsBar = null;
+  if (!artifactsBar) {
+    const el = document.createElement("div");
+    el.className = "art-bar";
+    thread.insertBefore(el, thread.firstChild);
+    artifactsBar = { el, files: new Map(), open: false };
+  }
+  return artifactsBar;
+}
+function barClear() {
+  // 切会话/新建:数据一并丢弃(节点已被 innerHTML="" 移除,这里只清状态)
+  artifactsBar = null;
+}
+function barAdd(p) {
+  barEnsure().files.set(p.path || p.name || "?", p);
+  barRender();
+}
+async function openViaApi(p) {
+  if (!window.pywebview) return;
+  try { await window.pywebview.api.open_artifact(p.path || p.name, "open"); } catch (e) {
+    (window.__errLog = window.__errLog || []).push("openViaApi error: " + String(e));
+  }
+}
+function barRender() {
+  const bar = artifactsBar;
+  if (!bar || bar.el.parentNode !== thread) return;
+  const files = Array.from(bar.files.values());
+  const el = bar.el;
+  el.innerHTML = "";
+  if (!files.length) return;
+  const pill = document.createElement("button");
+  pill.type = "button";
+  pill.className = "art-pill";
+  pill.textContent = `📄 ${files.length} 个产物`;
+  pill.onclick = () => { bar.open = !bar.open; barRender(); };
+  const panel = document.createElement("div");
+  panel.className = "art-panel";
+  if (!bar.open) panel.style.display = "none";
+  for (const p of files) {
+    const row = document.createElement("div");
+    row.className = "art-row";
+    const name = document.createElement("span");
+    name.className = "art-name";
+    name.title = p.path || p.name || "";
+    name.textContent = p.name || p.path || "?";
+    // 与链接行同交互:单击=系统打开,双击=预览;显式按钮兜底防误触。
+    // 预览卡不落在绝对定位面板内(会撑破),锚到胶囊下方的聊天流
+    name.onclick = () => openViaApi(p);
+    name.ondblclick = () => barPreview(p, el);
+    const bPrev = document.createElement("button");
+    bPrev.type = "button";
+    bPrev.className = "art-btn";
+    bPrev.textContent = "预览";
+    bPrev.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); barPreview(p, el); };
+    const bOpen = document.createElement("button");
+    bOpen.type = "button";
+    bOpen.className = "art-btn";
+    bOpen.textContent = "打开";
+    bOpen.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); openViaApi(p); };
+    row.append(name, bPrev, bOpen);
+    panel.appendChild(row);
+  }
+  el.append(pill, panel);
+}
+// 面板预览:按 path 记卡(同文件再点收起);卡插在胶囊正下方(聊天流内,可见区)
+async function barPreview(p, barEl) {
+  barEl.__cards = barEl.__cards || {};
+  const key = p.path || p.name || "?";
+  if (barEl.__cards[key]) { barEl.__cards[key].remove(); delete barEl.__cards[key]; return; }
+  const q = Object.assign({}, p);
+  if (!q.preview_type && q.path && window.pywebview) {
+    try { Object.assign(q, await window.pywebview.api.preview_file(q.path)); } catch (e) { /* binary 卡兜底 */ }
+  }
+  const card = buildArtifactCard(q);
+  barEl.__cards[key] = card;
+  if (barEl.parentNode) barEl.parentNode.insertBefore(card, barEl.nextSibling);
+  scrollBottom();
+}
+
 // ── 2026-09-24 R5:文件变更链接行(⚙/📎 行)──
-// 「📎 已修改 product.py (+2/-1)」:文件名为超链接,点击在行下方内联展开/收起预览卡
+// 「📎 已修改 product.py (+2/-1)」:文件名为超链接——
+// 2026-09-29 用户定交互:单击=系统程序打开,双击=行下方内联预览(单击延迟
+// 300ms,期间第二击到达则取消打开转预览)
 function showFileLink(p) {
   const line = document.createElement("div");
   line.className = "meta file-changed";
   // 2026-09-24 R8(用户要求):超链接做成「文件图标+超链接」——图标复用产物卡的
-  // 文件 SVG(与 📦 卡片同款),文件名为链接,点击行下方内联预览
+  // 文件 SVG(与 📦 卡片同款),文件名为链接
   const ico = document.createElement("span");
   ico.className = "file-ico";
   ico.innerHTML = ICON_FILE;
@@ -465,6 +556,13 @@ function showFileLink(p) {
   a.textContent = p.name || p.path || "?";
   a.onclick = (ev) => {
     if (ev && ev.preventDefault) ev.preventDefault();
+    if (a.__openTimer) { clearTimeout(a.__openTimer); a.__openTimer = null; }
+    a.__openTimer = setTimeout(() => { a.__openTimer = null; openViaApi(p); }, 300);
+    return false;
+  };
+  a.ondblclick = (ev) => {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    if (a.__openTimer) { clearTimeout(a.__openTimer); a.__openTimer = null; }
     toggleFilePreview(p, line);
     return false;
   };
@@ -785,6 +883,7 @@ $("#newConv").addEventListener("click", async () => {
   await window.pywebview.api.new_conversation();
   thread.innerHTML = "";
   currentAssistant = null;
+  barClear();  // 2026-09-29 产物胶囊:新会话不残留旧会话文件
   hideThinkingKeepTimer();  // 修复(2026-09-23 #43):同 onHistory,清屏必须复位 thinkingEl
   $("#statusbar").textContent = "新会话(发送第一条消息时创建)";
 });

@@ -287,8 +287,13 @@ otterUI2.onDelta("收尾");
 otterUI2.onDone({ summary: "done", final_text: "" });
 check("流式中 ARTIFACT 卡片不被冲掉", cardsInThread() === 2);
 
-// 8f. FILE_CHANGED(R5,2026-09-24 用户要求):📎 链接行渲染(图标+文件名超链接+
-//     diffstat),点击行下方内联展开预览卡,再点收起
+// 8f. FILE_CHANGED(R5,2026-09-24;2026-09-29 用户定交互:单击=系统打开,双击=内联预览):
+//     链接行(图标+文件名+diffstat)+ 顶部产物胶囊;单击调 open_artifact,
+//     双击行下方内联展开预览卡,再双击收起
+global.window.pywebview = { api: {
+  open_artifact: async (p, how) => { global.__opened = [p, how]; return "ok"; },
+} };
+global.__opened = null;
 otterUI2.onEvent({ type: "FILE_CHANGED", path: "demo/sample.py", name: "sample.py",
                    action: "已修改", plus: 2, minus: 1,
                    preview_type: "code", lang: "python", content: "print(1)", size: 8 });
@@ -298,13 +303,17 @@ check("R8 链接行=文件图标+文案", linkLine !== undefined
   && linkLine.children[1] && linkLine.children[1].textContent.includes("已修改"));
 const linkEl2 = linkLine && linkLine.querySelector(".file-link");
 check("R5 文件名为超链接", linkEl2 !== null && linkEl2.textContent === "sample.py");
+check("FILE_CHANGED 同步喂产物胶囊", threadEl.children.some((c) => c._cl.has("art-bar")));
 const r5Base = cardsInThread();
-linkEl2.onclick();
-check("R5 点击文件名内联展开预览卡 +1", cardsInThread() === r5Base + 1);
+linkEl2.onclick();  // 桩 setTimeout 立即执行 → openViaApi 已同步调
+check("R5 单击链接=系统打开", global.__opened !== null
+      && global.__opened[0] === "demo/sample.py" && global.__opened[1] === "open");
+linkEl2.ondblclick();
+check("R5 双击链接=内联预览 +1", cardsInThread() === r5Base + 1);
 check("R8 diffstat (+2/-1) 在行内(第4子元素)", linkLine.children[3]
   && linkLine.children[3].textContent === " (+2/-1)");
-linkEl2.onclick();
-check("R5 再点收起", cardsInThread() === r5Base);
+linkEl2.ondblclick();
+check("R5 再双击收起", cardsInThread() === r5Base);
 
 // 8g. 回放补发文件链接行(2026-09-29 用户要求"界面能打开文件"):
 //     onHistory 只重建消息气泡,实时渲染的链接行回放丢失——onHistoryFiles
@@ -318,6 +327,18 @@ const replayLinks = threadEl.children.filter((c) => c._cl.has("file-changed"));
 check("onHistoryFiles 渲染 2 条文件链接行", replayLinks.length === 2);
 check("回放链接行含文件名", replayLinks[0] && replayLinks[0].querySelector(".file-link").textContent === "cities.txt");
 check("回放链接含 action 文案", replayLinks[0] && textOf(replayLinks[0]).includes("已创建"));
+
+// 8g2. 会话产物胶囊(2026-09-29 用户要求仿 codex「N artifacts」):回放重灌后
+//      胶囊在 thread 顶部,点开面板=文件行(名称+预览/打开按钮),同 path 去重
+const barEl = threadEl.children.find((c) => c._cl.has("art-bar"));
+check("产物胶囊渲染(回放重灌,清空旧会话)", barEl !== undefined
+      && textOf(barEl).includes("2 个产物"));
+barEl && barEl.querySelector(".art-pill").onclick();
+const artPanel = barEl && barEl.querySelector(".art-panel");
+const artRows = artPanel ? artPanel.querySelectorAll(".art-row") : [];
+check("胶囊点开面板 2 行文件", artRows.length === 2);
+check("面板行含预览/打开按钮", artRows[0] && artRows[0].querySelectorAll(".art-btn").length === 2
+      && textOf(artRows[0]).includes("cities.txt"));
 
 // 9) 运行历史块渲染(2026-09-24 用户要求:整屏行分布记录块,取消左右分栏)。
 //    覆写 querySelector 返回持久 #runsList 桩 + 假 pywebview.api,断言块结构/如实中断标注/行内 Trace。
