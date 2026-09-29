@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260929a"  # 20260929a:子代理过程行 🦦via 徽标(dispatch/orchestrate 事件上报;index.html ?v= 同步)
+WEB_BUILD = "20260929b"  # 20260929b:step 行去横线,子代理只报关键动作(index.html ?v= 同步)
 
 
 class DiffGateSession:

@@ -222,6 +222,7 @@ const plogTexts = () => {
 };
 otterUI2.onEvent({ type: "MODEL_STARTED", step: 2, mode: "normal", via: "worker2" });
 check("via 徽标:worker2 过程行含 🦦 标记", plogTexts().includes("🦦worker2"));
+check("step 行已去横线装饰(2026-09-29 用户要求)", !/── step/.test(plogTexts()) && /step 2/.test(plogTexts()));
 otterUI2.onEvent({ type: "TOOL_STARTED", step: 2, name: "write_file", arguments: { path: "a.md" }, via: "subagent" });
 check("via 徽标:subagent 工具行含 🦦 标记", plogTexts().includes("🦦subagent") && plogTexts().includes("write_file"));
 

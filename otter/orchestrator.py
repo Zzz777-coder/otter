@@ -86,11 +86,13 @@ class Orchestrator:
         self._event_sink = event_sink  # 2026-09-29 各角色事件实时上报主界面(via 标记)
 
     def _make_on_event(self, role: str, sink_box: list):
-        """角色事件回调:计数(进 sink_box)+ 实时上报(带 via=角色标记,失败静默)。"""
+        """角色事件回调:计数(进 sink_box)+ 实时上报(带 via=角色标记,失败静默)。
+        节拍事件(MODEL_STARTED/COMPLETED)不上报——多 worker 逐拍转发会刷屏,
+        只报关键动作(工具/审批/产物)。"""
 
         async def on_event(type_: str, payload: dict) -> None:
             sink_box.append(type_)
-            if self._event_sink is not None:
+            if self._event_sink is not None and type_ not in ("MODEL_STARTED", "MODEL_COMPLETED"):
                 try:
                     await self._event_sink(type_, {**payload, "via": role})
                 except Exception:

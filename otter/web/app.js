@@ -124,7 +124,7 @@ window.otterUI = {
     // 整体失败且被 pywebview 静默吞掉(前端表现为"事件随机丢"),现在至少落 __errLog 可查
     try {
     // 2026-09-23:PLAN 模式的 step 行加徽标(模式已常驻,run 级 mode 随事件携带)
-    if (type === "MODEL_STARTED") { finalizeAssistant(); rawBuf = ""; ensureThinking(); meta("system", `${p.via ? "🦦" + p.via + " · " : ""}── step ${p.step}${p.mode === "plan" ? " · PLAN" : ""} ──`); }
+    if (type === "MODEL_STARTED") { finalizeAssistant(); rawBuf = ""; ensureThinking(); meta("system", `${p.via ? "🦦" + p.via + " · " : ""}step ${p.step}${p.mode === "plan" ? " · PLAN" : ""}`); }
     else if (type === "TOOL_STARTED") {
       const args = JSON.stringify(p.arguments || {});
       meta("tool", `${p.via ? "🦦" + p.via + " · " : ""}⚡ ${p.name} ${args.length > 130 ? args.slice(0, 130) + "…" : args}`);

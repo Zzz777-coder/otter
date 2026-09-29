@@ -240,8 +240,10 @@ class WritableSubagentTool(Tool):
         async def on_event(type_: str, payload: dict) -> None:
             events.append(type_)
             # 2026-09-29 过程可视化:子代理事件实时上报主界面(与主代理同一
-            # 事件通道,via 标记来源;上报失败静默——可视化不阻断子代理本身)
-            if sink is not None:
+            # 事件通道,via 标记来源;上报失败静默——可视化不阻断子代理本身)。
+            # 节拍事件(MODEL_STARTED/COMPLETED)不上报——子代理步数多,
+            # 逐拍转发会在主界面刷大量分隔行,只报关键动作
+            if sink is not None and type_ not in ("MODEL_STARTED", "MODEL_COMPLETED"):
                 try:
                     await sink(type_, {**payload, "via": "subagent"})
                 except Exception:

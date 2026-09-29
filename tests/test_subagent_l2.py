@@ -181,7 +181,8 @@ def test_dispatch_event_sink_and_parent_run(tmp_path: Path, monkeypatch):
     asyncio.run(tool.run({"task": "写 sink.txt", "write": "full"}))
 
     types = [t for t, _ in seen_events]
-    assert "MODEL_STARTED" in types and "TOOL_STARTED" in types  # 子代理过程上报了
+    # 2026-09-29 降噪:关键动作上报、节拍事件(MODEL_STARTED/COMPLETED)过滤
+    assert "TOOL_STARTED" in types and "MODEL_STARTED" not in types
     assert all(p.get("via") == "subagent" for _, p in seen_events)  # 来源标记齐
     # 父 Run 挂接:store 里该 run 的 parent_run_id=77(用假 Store 捕获构造参数)
     calls = [c for c in tool._store.calls if c[0] == "new_run"]
