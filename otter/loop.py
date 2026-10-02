@@ -26,6 +26,7 @@ from otter.context.estimator import estimate_messages_tokens, estimate_tokens
 from otter.context.summarizer import ConversationSummary, RollingSummarizer
 from otter.models.types import Message, ModelResponse, ModelUsage
 from otter.models.openai_compat import TextDeltaCallback
+from otter.models.retry import ModelRetryExhausted  # 2026-10-02:重试耗尽异常(事件带尝试次数)
 from otter.prompts import (  # 2026-09-23 提示词套件重构:全部话术单一来源 otter/prompts.py
     BASE_SYSTEM,
     EDIT_HINT_DIFF,
@@ -471,9 +472,20 @@ class AgentLoop:
             # ② 请求组装(system+摘要+尾部) + ④ 流式调模型
             await self._emit(run_id, "MODEL_STARTED", {"step": step, "mode": mode})
             try:
+                # 2026-10-02:adapter 已由工厂统一套 RetryingAdapter,429/5xx/网络
+                # 抖动在模型层指数退避重试(1s/2s/4s,流已开始则不重放);此处只在
+                # 重试耗尽/不可重试异常时到达——此前任何模型异常直接终止 run,
+                # 长任务几十步进度因一次 429 全丢
                 resp: ModelResponse = await self.adapter.complete_stream(
                     self._build_view(messages, state), self._definitions_for(mode), on_text_delta
                 )
+            except ModelRetryExhausted as exc:
+                # 2026-10-02:耗尽分支——事件带尝试次数,用户提示含"端点可能不健康"
+                await self._emit(run_id, "MODEL_ERROR", {
+                    "error": str(exc)[:500], "retries_exhausted": True,
+                    "attempts": exc.attempts})
+                await self.store.finish_run(run_id, "failed", STOP_ERROR)
+                return AgentResult(False, f"模型调用失败:{exc}", STOP_ERROR, step, model_calls, total_tool_calls, usage or ModelUsage())
             except Exception as exc:
                 await self._emit(run_id, "MODEL_ERROR", {"error": str(exc)[:500]})
                 await self.store.finish_run(run_id, "failed", STOP_ERROR)
@@ -786,6 +798,12 @@ class AgentLoop:
         messages.append(Message(role="user", content=MAX_STEPS_FINAL_MESSAGE))
         try:
             resp = await self.adapter.complete_stream(self._build_view(messages, state), tools=None, on_text_delta=on_text_delta)
+        except ModelRetryExhausted as exc:
+            # 2026-10-02:与主循环同款耗尽分支(收尾步同样受 RetryingAdapter 保护)
+            await self._emit(run_id, "MODEL_ERROR", {
+                "error": str(exc)[:500], "retries_exhausted": True, "attempts": exc.attempts})
+            await self.store.finish_run(run_id, "failed", STOP_ERROR)
+            return AgentResult(False, f"收尾调用失败:{exc}", STOP_ERROR, max_steps, model_calls, total_tool_calls, usage or ModelUsage())
         except Exception as exc:
             await self.store.finish_run(run_id, "failed", STOP_ERROR)
             return AgentResult(False, f"收尾调用失败:{exc}", STOP_ERROR, max_steps, model_calls, total_tool_calls, usage or ModelUsage())

@@ -114,15 +114,19 @@ def test_consume_broken_tool_json_feeds_back_error():
 
 
 def test_build_adapter_factory_auto_and_explicit():
-    """auto:base_url 含 anthropic.com → 原生;否则兼容层;显式 provider 强制。"""
-    from otter.models.anthropic import AnthropicAdapter
+    """auto:base_url 含 anthropic.com → 原生;否则兼容层;显式 provider 强制。
 
-    assert isinstance(build_adapter("https://api.anthropic.com", "k", "claude-sonnet-5"),
-                      AnthropicAdapter)
-    assert isinstance(build_adapter("https://api.deepseek.com", "k", "deepseek-v4-flash"),
-                      OpenAICompatAdapter)
+    2026-10-02:工厂出口统一套 RetryingAdapter(模型层指数退避重试),协议判定
+    断言改为检查内层(__getattr__ 透传);包装契约本身见 test_model_retry.py。"""
+    from otter.models.anthropic import AnthropicAdapter
+    from otter.models.retry import RetryingAdapter
+
+    wrapped = build_adapter("https://api.anthropic.com", "k", "claude-sonnet-5")
+    assert isinstance(wrapped, RetryingAdapter) and isinstance(wrapped._inner, AnthropicAdapter)
+    wrapped = build_adapter("https://api.deepseek.com", "k", "deepseek-v4-flash")
+    assert isinstance(wrapped, RetryingAdapter) and isinstance(wrapped._inner, OpenAICompatAdapter)
     # 显式 anthropic 覆盖 auto 判定(如反代域名场景)
-    assert isinstance(build_adapter("https://my-proxy.example", "k", "m", provider="anthropic"),
-                      AnthropicAdapter)
+    wrapped = build_adapter("https://my-proxy.example", "k", "m", provider="anthropic")
+    assert isinstance(wrapped._inner, AnthropicAdapter)
     a = build_adapter("https://api.anthropic.com", "k", "m", max_tokens=4096)
-    assert a._max_tokens == 4096  # OTTER_MAX_TOKENS 透传(Anthropic 必填项)
+    assert a._inner._max_tokens == 4096  # OTTER_MAX_TOKENS 透传(Anthropic 必填项)

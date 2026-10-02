@@ -56,7 +56,9 @@ def _to_wire_tools(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
 class OpenAICompatAdapter:
     def __init__(self, base_url: str, api_key: str, model: str) -> None:
         self.model = model
-        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=120.0, max_retries=2)
+        # 2026-10-02:max_retries=2→0——SDK 内建重试关闭,统一由外层 RetryingAdapter
+        # 做指数退避(否则两层叠加,一次瞬态失败最多打 3*2=6 个请求,退避节奏不可控)
+        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=120.0, max_retries=0)
 
     async def complete_stream(
         self,
