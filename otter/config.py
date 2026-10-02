@@ -44,6 +44,10 @@ class Config:
     # ── 2026-09-24 新增:Anthropic 原生 adapter 配置 ──
     provider: str = "auto"         # auto=按 base_url 判定;可显式 anthropic / openai
     max_tokens: int = 8192         # Anthropic max_tokens 必填(OpenAI 层忽略此值)
+    # ── 2026-10-02 新增:机制开关(ablation 对照实验用)──
+    # 关闭后装配层不建对应组件,loop 代码不变;默认全开,仅评估/诊断场景关闭
+    compress: bool = True          # OTTER_COMPRESS=0 关滚动摘要压缩(超窗由模型端报错兜底)
+    memory: bool = True            # OTTER_MEMORY=0 关双层记忆注入与 Run 后反思(检索工具面保留)
 
     @classmethod
     def load(cls) -> "Config":
@@ -62,4 +66,7 @@ class Config:
             run_budget=int(os.environ.get("OTTER_RUN_BUDGET", "3000000")),  # 2026-09-24:默认扩至 3M
             provider=os.environ.get("OTTER_PROVIDER", "auto"),
             max_tokens=int(os.environ.get("OTTER_MAX_TOKENS", "8192")),
+            # 2026-10-02 ablation 开关(默认开)
+            compress=os.environ.get("OTTER_COMPRESS", "1") not in ("0", "false", "no"),
+            memory=os.environ.get("OTTER_MEMORY", "1") not in ("0", "false", "no"),
         )

@@ -113,9 +113,14 @@ async def build_engine(workspace: str | Path | None = None, config: Config | Non
 
         mcp_report = await connect_servers(registry)
 
+    # 2026-10-02 ablation 开关:OTTER_COMPRESS=0 不建 summarizer(loop 侧 None 即直通);
+    # OTTER_MEMORY=0 时 loop 不拿 memory_bundle(Core 注入与 Run 后反思随之关闭,
+    # registry 里的检索工具面保留——关的是"主动机制",不破坏工具可用性)
+    active_memory_bundle = memory_bundle if cfg.memory else None
+
     loop = AgentLoop(
         adapter, registry, store,
-        summarizer=RollingSummarizer(summary_adapter),
+        summarizer=RollingSummarizer(summary_adapter) if cfg.compress else None,
         context_budget=cfg.context_budget,
         trigger_ratio=cfg.trigger_ratio,
         keep_recent=cfg.keep_recent,
@@ -123,7 +128,7 @@ async def build_engine(workspace: str | Path | None = None, config: Config | Non
         instructions=load_instructions(),
         approval_gate=None if yes else build_gate(),
         sandbox=make_sandbox(cfg.sandbox),
-        memory_bundle=memory_bundle,
+        memory_bundle=active_memory_bundle,
         edit_format=os.environ.get("OTTER_EDIT_FORMAT", "auto"),
         activated_tools=activated,
         run_budget=cfg.run_budget,
@@ -134,11 +139,12 @@ async def build_engine(workspace: str | Path | None = None, config: Config | Non
                     mcp_report=mcp_report)
     # 2026-09-29 记忆向量后台补全:装配关键路径不等远程 Embedding,起后台任务
     # 预对账(查询零等待);未配置 Embedding 时静默跳过,检索侧惰性对账仍是兜底
-    if memory_bundle is not None:
+    # 2026-10-02:随 ablation 开关取 active_memory_bundle(关记忆时跳过补全)
+    if active_memory_bundle is not None:
         from otter.rag import backfill_memory_embeddings, build_embed_client_from_env
 
         embed_client = build_embed_client_from_env()
         if embed_client is not None:
             engine.backfill_task = asyncio.create_task(
-                backfill_memory_embeddings(memory_bundle[0], embed_client))
+                backfill_memory_embeddings(active_memory_bundle[0], embed_client))
     return engine
