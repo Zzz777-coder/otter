@@ -65,7 +65,7 @@ otter 在你的机器上本地运行:一个五拍循环的 Agent 引擎(停止�
 - **多角色编排** — `orchestrate` 一个调用=planner 分解 → worker 并行 fan-out → reviewer 汇聚核对;单 worker 失败不牵连,评审只判不做。
 - **本地 HTTP API** — `otter --serve`(FastAPI):health/会话 CRUD/消息/Run 事件 + `POST /api/chat` **SSE 流式**(text_delta/工具事件/final 逐帧推送;断连≠取消,事件与消息全程落库可回看)。
 - **作为库嵌入** — `import otter; await otter.build_engine(workspace=...)` 三行起引擎,与 CLI 同一条装配路径。
-- **评估体系** — 26 任务固定集(编码/文件/命令/日常)+ 机器验收 + 一键 markdown 跑分报告(成功率/token/延迟/工具调用/失败模式分类)。
+- **评估体系** — 39 任务固定集(编码/文件/命令/日常/多轮/开放/安全/子代理八类)+ 机器验收 + 回归基线对比 + LLM-judge + 一键 markdown 跑分报告(成功率/token/延迟/工具调用/失败模式分类)。
 - **Plan / Act 双模式** — PLAN 只读调查并产出结构化计划,人工采纳后切执行跑。
 - **Skill 体系** — 从真实 Run 提炼候选,人工确认转正;运行时 `<skills>` 注入,`skill_read` 按需取全文。
 - **Evidence 归档** — 工具输出截断前全文入库(sha256),模型可随时回取原文。
@@ -82,13 +82,13 @@ otter 在你的机器上本地运行:一个五拍循环的 Agent 引擎(停止�
 
 | 指标 | 值 | 口径 |
 |---|---|---|
-| 评估成功率 | **26/26(100%)** | 26 任务固定集,机器验收(文件/命令输出/回答实测),deepseek-v4-flash 单轮 |
-| 平均延迟 / 步数 / 工具调用 | 4.6s / 4.3 步 / 3.5 次 | 同上,串行单任务 |
-| 单任务 token 成本 | ~15.6k in / 0.6k out | 厂商返回真实用量,非估算 |
-| 测试 | 后端 170 用例 + 前端 71 断言,全绿 | 全离线(pytest + node) |
+| 评估成功率 | **38/39(97%)** | 39 任务八类固定集,机器验收(文件/命令输出/回答实测),deepseek-v4-flash;唯一失败系评估判据问题而非引擎回归,归因见下注 |
+| 平均延迟 / 步数 / 工具调用 | 7.0s / 4.6 步 / 3.8 次 | 同上,串行单任务;含 4 个多轮任务(平均 2.5 轮跑满) |
+| 单任务 token 成本 | ~19.8k in / 0.9k out | 厂商返回真实用量,非估算 |
+| 测试 | 后端 230 用例 + 前端 71 断言,全绿 | 全离线(pytest + node) |
 | 干净安装冒烟 | wheel[server] 装 → `--serve` → health/SSE chat 全通 | 独立 venv,PyPI 待发布 |
 
-逐任务明细:[evals/report.md](evals/report.md)。注:单轮结果,模型输出存在波动(任务集迭代期间的历史轮次为 88%/96%)。
+逐任务明细:[evals/report.md](evals/report.md)。**唯一失败任务 `code-cli-wordcount` 归因**:评估判据脆弱——模型执行中自行修改了给定输入样例,验收断言仍按原样例检查导致失配;属任务定义缺陷而非引擎回归,同日已修任务定义(锁输入 + 独立判据)并复跑通过、合并入基线(档案 #53)。教训已沉淀为任务编写规范:验收断言不得依赖可变输入。另注:单轮结果,模型输出存在波动(任务集迭代期间的历史轮次为 88%/96%)。
 
 ### 为什么自研,而不直接用 LangChain / LlamaIndex
 
@@ -156,7 +156,7 @@ otter -p "任务" --yes --output-format stream-json   # headless:NDJSON 流式(C
 
 ### 评估(固定任务集跑分)
 
-26 个真实任务(编码/文件/命令/日常四类),机器验收——不看模型"说没说完",看文件、命令输出与最终回答实测。单轮基线(deepseek-v4-flash,2026-09-29):**成功率 26/26,平均延迟 4.6s,平均工具调用 3.5,单任务平均 ~15.6k input token**;逐任务明细见 [evals/report.md](evals/report.md)。注:单轮结果,模型输出存在波动(任务集迭代期间的历史轮次为 88%/96%)。
+39 个真实任务(编码/文件/命令/日常/多轮/开放/安全/子代理八类),机器验收——不看模型"说没说完",看文件、命令输出与最终回答实测;附回归基线对比(基线过→本次挂即标记回归,可接 CI)与 LLM-judge。单轮基线(deepseek-v4-flash,2026-09-29):**成功率 38/39,平均延迟 7.0s,平均工具调用 3.8,单任务平均 ~19.8k input token**;唯一失败任务归因见[量化效果](#量化效果)下注。逐任务明细见 [evals/report.md](evals/report.md)。注:单轮结果,模型输出存在波动(任务集迭代期间的历史轮次为 88%/96%)。
 
 ```bash
 .venv/bin/python evals/run_evals.py            # 一键全跑,报告落 evals/
@@ -221,7 +221,7 @@ docker compose up -d                             # OTTER_API_KEY 经环境变量
 ## 开发检查
 
 ```bash
-.venv/bin/python -m pytest tests/ -v    # 后端全离线(170 用例)
+.venv/bin/python -m pytest tests/ -v    # 后端全离线(230 用例)
 node tests/test_web_render.js           # 前端渲染冒烟(71 断言)
 # GUI 真机探针(真实窗口 DOM 断言,非目测):
 .venv/bin/otter --gui-artifact-probe    # 产物卡片 18 项
@@ -250,7 +250,7 @@ otter/
 │   ├── repl.py / __main__.py   CLI(REPL/-p/headless stream-json/--serve)
 │   ├── gui.py + web/      桌面 GUI(pywebview + 自写 HTML/CSS/JS)
 │   └── replan.py          领域扩展示例(默认关,OTTER_REPLAN=1 开)
-├── tests/                 离线测试(后端 pytest 170 + 前端 node 71)
+├── tests/                 离线测试(后端 pytest 230 + 前端 node 71)
 ├── evals/                 评估任务集 + harness + 跑分报告
 ├── Dockerfile / compose.yaml   server 模式部署物
 ├── playground/            默认工作区(.otter/ 状态在内)
