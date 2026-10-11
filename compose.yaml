@@ -1,7 +1,8 @@
 # otter server 编排(2026-09-29 P7):单容器 server 模式,无 GUI。
 # 用法:OTTER_API_KEY=sk-... docker compose up -d
 # 密钥经环境变量注入(不进镜像/不入库);当前目录作为工作区挂载(状态在 .otter/ 下)。
-# 本机无 Docker 环境,此文件未实跑(2026-09-29 留档);宿主访问 http://127.0.0.1:8765/docs
+# 2026-10-11 实测通过(colima):up -d 后 /api/health 返回 200;
+# 注意 down 同样校验 OTTER_API_KEY(:? 语法),清理时须带任意值再执行 down
 
 services:
   otter:
