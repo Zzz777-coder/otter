@@ -87,20 +87,38 @@ def looks_like_textual_tool_call(content: str | None) -> bool:
 _REPEAT_LIMIT = 3
 
 # 2026-09-23 用户要求:bash 中检测到文件修改操作也弹确认窗(与 write_file 同一闸门)
+# 2026-10-15 修复误报:重定向 > 的判定从本表移出——裸子串匹配分不清 > 在引号内
+# 还是语法位,把 sed 替换串、python 字符串 '->' 里的 > 误判成写盘;改由
+# _bash_writes_files 先剥引号再做重定向判定,本表只留命令词/安装类规则(不动)
 _BASH_WRITE_CMDS = re.compile(
     r"(?:^|[\s;])(?:touch|rm|mv|cp|mkdir|rmdir|tee|truncate|dd|chmod|chown|ln|shred|install|patch|split)\s"
     r"|sed\s+\S*\s*-i"
-    r"|pip\s+install|npm\s+install"
-    r"|>(?!&)\s*\S",   # > 文件重定向(排除 >& 合并输出;2026-09-23 用户反馈弹两次窗)
+    r"|pip\s+install|npm\s+install",
     re.MULTILINE
 )
+# 2026-10-15 修复误报:单/双引号字符串整段剥成引号壳(只留两个引号字符)——
+# 引号里的 > 是字面量不是重定向;引号外的语法位 > 原样保留(判定只看 > 的位置,
+# 不需要目标文件名,故 echo x > 'f ile' 仍命中)。字符类含换行,多行命令
+# (heredoc 内嵌整段 python 源码)同样适用;双引号内允许 \" 转义
+_BASH_QUOTED_SPAN = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+# 2026-10-15 修复误报:重定向改为显式解析——可选 fd(数字或 &)+ >/>>,
+# (?!&) 沿用 2026-09-23 结论排除 2>&1 类合并输出;捕获目标用于丢弃型判定
+_BASH_REDIRECT = re.compile(r"(?:\d{1,2}|&)?>>?(?!&)\s*(\S+)")
 
 
 def _bash_writes_files(command: str) -> bool:
-    """检测 bash 命令是否包含文件修改操作(宁可误报弹窗也不漏报)。"""
+    """检测 bash 命令是否包含文件修改操作(宁可误报弹窗也不漏报)。
+
+    2026-10-15 修复误报:> 判定前先剥引号内文本,引号里的 > 不再算重定向;
+    目标为 /dev/null 的丢弃型重定向(2>/dev/null、&>/dev/null、>/dev/null)
+    不落盘不算写;其余重定向(2>err.log、>> log.txt、> 'f ile')仍一律算写。"""
     if not command:
         return False
-    return bool(_BASH_WRITE_CMDS.search(command))
+    if _BASH_WRITE_CMDS.search(command):
+        return True
+    stripped = _BASH_QUOTED_SPAN.sub(lambda m: m.group(0)[0] + m.group(0)[-1], command)
+    # 任一重定向目标不是 /dev/null 即视为写盘(>/dev/null 是丢弃,不产生文件)
+    return any(m.group(1) != "/dev/null" for m in _BASH_REDIRECT.finditer(stripped))
 
 
 @dataclass

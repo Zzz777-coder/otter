@@ -268,3 +268,47 @@ def test_reflection_uses_reflection_adapter(tmp_path):
     # 反思 usage 进事件(分账"记忆反思"行数据源)
     assert any(t == "MEMORY_REFLECTION" and p.get("usage_in") == 77
                for t, p in loop.store.events)
+
+
+# ── 2026-10-15 修复误报:bash 写文件检测的 > 重定向判定 ──────────────
+
+_HEREDOC_READONLY = (
+    "python3 - <<'PY'\n"
+    "import os\n"
+    "for t in ('a', 'b'):\n"
+    "    print(t, '->', cols)\n"
+    "PY"
+)
+
+
+def test_bash_write_detection_no_false_positives():
+    """2026-10-15 修复误报:纯只读命令不再误判写盘——引号内的 > 是字面量,>/dev/null 是丢弃。"""
+    from otter.loop import _bash_writes_files
+
+    # GUI 实测(run 29)的三例误报:此前均误触「需要修改文件」确认窗
+    assert not _bash_writes_files("env | grep -iE 'token' | sed 's/=.*/=<hidden>/'")  # > 在单引号替换串内
+    assert not _bash_writes_files("ls -R .otter 2>/dev/null")                  # stderr 丢弃,不落盘
+    assert not _bash_writes_files(_HEREDOC_READONLY)                           # '->' 是字符串字面量(多行)
+    # 同族只读形态一并锁定
+    assert not _bash_writes_files("cat a.txt 2>/dev/null >/dev/null")  # 丢弃型重定向全家桶
+    assert not _bash_writes_files('grep "x > y" file')                 # > 在双引号内
+    assert not _bash_writes_files("ls foo 2>&1")                       # 2>&1 是合并输出(2026-09-23 结论保持)
+    assert not _bash_writes_files("sed 's/a/b/' file")                 # 无 -i 的 sed 是流式只读
+    assert not _bash_writes_files("")
+
+
+def test_bash_write_detection_still_catches_writes():
+    """2026-10-15 修复误报后的底线:真重定向(含引号文件名、stderr 落盘、heredoc 命令行上的)仍判写。"""
+    from otter.loop import _bash_writes_files
+
+    assert _bash_writes_files("echo x > f.txt")
+    assert _bash_writes_files("cmd >out.txt")
+    assert _bash_writes_files("echo x >> log.txt")
+    assert _bash_writes_files("echo x > 'f ile'")      # 引号只包文件名,> 在语法位
+    assert _bash_writes_files("python x.py 2>err.log")  # /dev/null 之外的 stderr 目标仍算写
+    assert _bash_writes_files("python3 - <<'PY' > out.txt\nprint(1)\nPY")  # heredoc 本身不算,命令行真重定向算
+    assert _bash_writes_files("cmd > /dev/null 2> err.log")  # 混合场景:存在一个真目标即写
+    # 命令词/安装类规则不受本次改动影响
+    assert _bash_writes_files("touch a.txt")
+    assert _bash_writes_files("sed 's/a/b/' -i file")
+    assert _bash_writes_files("pip install requests")
