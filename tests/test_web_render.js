@@ -778,6 +778,65 @@ check("面板行含预览/打开按钮", artRows[0] && artRows[0].querySelectorA
           && asst[1].querySelector(".body").querySelectorAll(".md-chunk").length === 1);
   }
 
+  // 7w) 2026-10-15 本轮 token 用量行:onDone 携带 usage → 助手气泡尾部渲染;
+  //     字段未知显示"—"(不伪装 0),全未知整行不显示;回放 onHistory 同样显示
+  //     (后端把本轮 Run 用量挂在该轮最后一条 assistant 消息上)
+  {
+    const tEl = new El("div");
+    document.querySelector = (sel) =>
+      sel === "#thread" ? tEl : sel === "#convSearch" ? searchEl :
+      sel === "#convList" ? new El("div") : sel === "#statusbar" ? statusEl : new El("div");
+    (0, eval)(appSrc);
+    const ui = global.otterUI;
+    // 实时路径:流式两段 + onDone 带 usage → 用量行落在块内(气泡尾部)
+    ui.onEvent({ type: "MODEL_STARTED", step: 1 });
+    ui.onDelta("段A");
+    ui.onEvent({ type: "MODEL_STARTED", step: 2 });
+    ui.onDelta("段B");
+    ui.onDone({ summary: "完成", final_text: "", usage_in: 120, usage_out: 80 });
+    const blk1 = tEl.children.filter((c) => c._cl && c._cl.has("msg-assistant")).pop();
+    const u1 = blk1 && blk1.querySelectorAll(".usage");
+    check("onDone 带用量:气泡尾部渲染用量行", !!u1 && u1.length === 1
+          && String(u1[0].textContent) === "本轮 120 in / 80 out tokens");
+    // 字段未知(厂商未返回 input):该字段显示"—",另一字段如实显示
+    ui.onDelta("第二轮");
+    ui.onDone({ summary: "半未知", final_text: "", usage_in: null, usage_out: 42 });
+    const blk2 = tEl.children.filter((c) => c._cl && c._cl.has("msg-assistant")).pop();
+    const u2 = blk2 && blk2.querySelectorAll(".usage");
+    check("字段未知显示 —(不伪装 0)", !!u2 && u2.length === 1
+          && String(u2[0].textContent) === "本轮 — in / 42 out tokens");
+    // 两者都未知(payload 不带 usage 键):整行不显示
+    ui.onDelta("第三轮");
+    ui.onDone({ summary: "全未知", final_text: "" });
+    const blk3 = tEl.children.filter((c) => c._cl && c._cl.has("msg-assistant")).pop();
+    check("全未知不显示用量行", !!blk3 && blk3.querySelectorAll(".usage").length === 0);
+    // 回放路径:轮末消息带 usage 渲染在块尾,中间消息/全未知不渲染
+    tEl.children = [];
+    ui.onHistory([
+      { role: "user", content: "问1" },
+      { role: "assistant", content: "先分析", usage_in: null, usage_out: null },
+      { role: "assistant", content: "答1", usage_in: 10, usage_out: 5 },
+      { role: "user", content: "问2" },
+      { role: "assistant", content: "答2", usage_in: null, usage_out: null },
+    ]);
+    const rblocks = tEl.children.filter((c) => c._cl && c._cl.has("msg-assistant"));
+    check("回放轮末消息渲染用量行(中间/全未知不渲染)", rblocks.length === 2
+          && rblocks[0].querySelectorAll(".usage").length === 1
+          && String(rblocks[0].querySelectorAll(".usage")[0].textContent) === "本轮 10 in / 5 out tokens"
+          && rblocks[1].querySelectorAll(".usage").length === 0);
+    // 回放空终稿轮:轮末消息无正文,用量仍渲染(挂到该轮已开的块尾)
+    tEl.children = [];
+    ui.onHistory([
+      { role: "user", content: "问" },
+      { role: "assistant", content: "过程说明" },
+      { role: "assistant", content: "", usage_in: 7, usage_out: 3 },
+    ]);
+    const eblocks = tEl.children.filter((c) => c._cl && c._cl.has("msg-assistant"));
+    check("回放空终稿轮的用量不丢(挂块尾)", eblocks.length === 1
+          && eblocks[0].querySelectorAll(".usage").length === 1
+          && String(eblocks[0].querySelectorAll(".usage")[0].textContent) === "本轮 7 in / 3 out tokens");
+  }
+
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);
   process.exit(failures === 0 ? 0 : 1);
 })();

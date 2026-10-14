@@ -174,15 +174,18 @@ window.otterUI = {
     hideThinking();
     // 修复(2026-09-23 重复回复):流式期间已有 assistant 块(finalize 会渲染剩余 buffer)
     // 不再另起新块——只在流式没产生块时(如无输出)才建终块
+    let doneBlk = null;  // 2026-10-15 新增:留收口块引用——finalize 后置空,用量行要挂气泡尾部
     if (currentAssistant) {
-      finalizeAssistant();
+      doneBlk = finalizeAssistant();
     } else if ((payload.final_text || "").trim()) {
       startAssistant();
       const text = payload.final_text;
       renderMarkdown(ensureChunk(), text);  // 2026-09-29:终文本渲染进段(ensureChunk 清缓冲,先存)
-      finalizeAssistant();
+      doneBlk = finalizeAssistant();
     }
     rawBuf = "";
+    // 2026-10-15 新增:本轮真实 token 用量行(onDone 携带;字段未知显示"—",全未知不显示)
+    appendUsageLine(doneBlk, payload.usage_in, payload.usage_out);
     meta("ok", `✔ ${payload.summary}`);
     flushRunFiles();  // 2026-09-29 终版:多个文件统一放在任务最后输出
     setBusy(false);
@@ -232,6 +235,10 @@ window.otterUI = {
         finalizeAssistant();  // 2026-09-29:用户提问才断块——一次提问的多段回复合并在同一个头像块
         addUser(m.content || "");
       } else if (m.role === "assistant") {
+        // 2026-10-15 新增:回放路径同样显示每轮用量——后端把本轮 Run 的用量挂在该轮
+        // 最后一条 assistant 消息上;先于空内容跳过(空终稿的 Run 用量也不丢,无块时
+        // 退回消息流行)
+        appendUsageLine(currentAssistant, m.usage_in, m.usage_out);
         if (!(m.content || "").trim()) continue;
         // 块在则续段(每条 assistant 消息=一段),不在则开块:连续 assistant
         // 消息(工具轮间隔)合并在同一个头像块里
@@ -357,8 +364,11 @@ function ensureChunk() {
 }
 
 function finalizeAssistant() {
-  if (!currentAssistant) return;
-  currentAssistant.classList.remove("busy");
+  // 2026-10-15 新增:返回刚收口的块(onDone 要在其尾部挂本轮用量行,而此处会置空
+  // 引用);无块返回 null,原有时序与副作用不变
+  if (!currentAssistant) return null;
+  const blk = currentAssistant;
+  blk.classList.remove("busy");
   if (streamRenderTimer) { clearTimeout(streamRenderTimer); streamRenderTimer = null; }
   if (rawBuf.trim()) {
     const text = rawBuf;                     // ensureChunk 建新段会清缓冲,先存文本
@@ -366,6 +376,18 @@ function finalizeAssistant() {
   }
   currentAssistant = null;
   currentChunk = null;
+  return blk;
+}
+
+// 2026-10-15 新增:本轮真实 token 用量行——挂在助手气泡尾部(空跑无块时退回消息流)。
+// 口径与后端记账一致"未知即 None":未知字段显示"—",两者都未知整行不显示(不伪装 0)
+function appendUsageLine(blk, uin, uout) {
+  if (uin == null && uout == null) return;
+  const div = document.createElement("div");
+  div.className = "meta system usage";
+  div.textContent = `本轮 ${uin == null ? "—" : uin} in / ${uout == null ? "—" : uout} out tokens`;
+  if (blk) blk.appendChild(div);
+  else mountAboveThinking(div);
 }
 
 // ── diff 预览卡片(M3.5):GUI 侧展示变更,采纳后写盘(preview_gate 在 Python 侧)──

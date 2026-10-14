@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20260929h"  # 20260929h:一次回复一个头像(多段正文同块分段)(index.html ?v= 同步)
+WEB_BUILD = "20261015a"  # 20261015a:助手气泡尾部显示本轮 token 用量(index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -294,7 +294,11 @@ class OtterWebGui:
             self._js("onConversations", await self._conv_payload())
             # 2026-09-22 用户要求:GUI 屏蔽流式裸文本只显示"思考中"——
             # 最终全文随 onDone 一次性下发,前端统一做 markdown 渲染
-            self._js("onDone", {"summary": result.summary(), "final_text": result.final_text})
+            # 2026-10-15 新增:onDone 携带本轮真实 token 用量(前端在助手气泡尾部
+            # 显示);沿用 ModelUsage"未知即 None"口径——厂商未返回的字段原样传 None,不伪装成 0
+            self._js("onDone", {"summary": result.summary(), "final_text": result.final_text,
+                                "usage_in": result.usage.input_tokens,
+                                "usage_out": result.usage.output_tokens})
         except asyncio.CancelledError:
             # 2026-09-22 用户要求:思考中的停止键——取消运行中的任务,诚实落终态
             # 2026-09-24:终态 interrupted → cancelled(协作取消/硬取消/REPL Ctrl+C 三路统一)
@@ -390,8 +394,15 @@ class OtterWebGui:
                 full = fut.result(timeout=5)
                 if path == "fresh":
                     gui.history = [m for m in full if m.role in ("user", "assistant")]
+                # 2026-10-15 新增:回放同样显示每轮真实 token 用量——从事件库按 Run
+                # 汇总后挂到各轮最后一条 assistant 消息上(与实时 onDone 同一显示);
+                # 无用量数据的旧消息不带 usage 键,前端不显示该行
+                usage_rows = _conv_replay_usage(gui.db_path, cid, len(full))
                 gui._js("onHistory", [
-                    {"role": m.role, "content": m.content, "name": m.name} for m in full
+                    {"role": m.role, "content": m.content, "name": m.name,
+                     "usage_in": usage_rows[i]["in"] if usage_rows[i] else None,
+                     "usage_out": usage_rows[i]["out"] if usage_rows[i] else None}
+                    for i, m in enumerate(full)
                 ])
                 # 2026-09-29 用户要求(界面能打开文件):回放后补发本会话的文件变更
                 # 链接行——链接行此前只在实时事件渲染,重启/切会话回放时不重建,
@@ -771,6 +782,62 @@ def _db_ro(path: Path) -> sqlite3.Connection | None:
         return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=0.3)
     except sqlite3.Error:
         return None
+
+
+def _conv_replay_usage(db_path: Path, cid: int, expect: int) -> list[dict | None]:
+    """2026-10-15 新增:回放路径的每轮 token 用量(onHistory 用量行的数据源)。
+
+    从事件库按 Run 汇总真实用量,挂到各轮 Run 的最后一条 assistant 消息上——
+    与实时 onDone 的 AgentResult.usage 同口径:主模型调用(MODEL_COMPLETED)+
+    上下文压缩(CONTEXT_COMPACTED);反思与子代理记在各自的 Run 下,天然不混入。
+    返回与 load_conversation_messages(include_tools=True) 同序(ORDER BY id)的列表:
+    挂点消息为 {"in": x, "out": y},其余为 None;厂商未返回的字段保持 None(未知即
+    未知,不伪装 0——SQL 的 SUM 会静默丢 NULL,故在 Python 侧逐事件累计)。
+    行数对不齐(写入竞态/旧库)时整份放弃全 None:用量是增强显示,不阻断回放。"""
+    from otter.models.types import ModelUsage
+
+    out: list[dict | None] = [None] * expect
+    db = _db_ro(db_path)
+    if db is None or expect <= 0:
+        return out
+    try:
+        rows = db.execute(
+            "SELECT id, role, run_id FROM messages WHERE conversation_id=? ORDER BY id", (cid,)
+        ).fetchall()
+        if len(rows) != expect:
+            return out  # 与 load_conversation_messages 的行序对不上:放弃标注
+        idx_by_id: dict[int, int] = {}        # message_id → 在 full 中的下标
+        last_asst: dict[int, int] = {}        # run_id → 该 Run 最后一条 assistant 消息 id
+        for i, (mid, role, run_id) in enumerate(rows):
+            idx_by_id[mid] = i
+            if role == "assistant" and run_id is not None:
+                last_asst[run_id] = mid  # ORDER BY id:后见覆盖前见即"最后一条"
+        if not last_asst:
+            return out
+        runs = tuple(last_asst)
+        ph = ",".join("?" * len(runs))
+        acc = {rid: ModelUsage(0, 0) for rid in runs}
+        seen: set[int] = set()  # 实际发生过模型调用/压缩的 Run(无事件的 Run 不显示)
+        # 用量在 payload_json 里(事件表无独立列);坏行跳过不阻断(与 _artifacts_payload 同容错)
+        for rid, payload_json in db.execute(
+            f"SELECT run_id, payload_json FROM events WHERE run_id IN ({ph}) "
+            "AND type IN ('MODEL_COMPLETED','CONTEXT_COMPACTED') ORDER BY id", runs
+        ):
+            try:
+                p = json.loads(payload_json or "{}")
+            except json.JSONDecodeError:
+                continue
+            acc[rid].add(ModelUsage(p.get("usage_in"), p.get("usage_out")))
+            seen.add(rid)
+        for rid, mid in last_asst.items():
+            if rid in seen:
+                u = acc[rid]
+                out[idx_by_id[mid]] = {"in": u.input_tokens, "out": u.output_tokens}
+        return out
+    except sqlite3.Error:
+        return out
+    finally:
+        db.close()
 
 
 def _memory_payload(root: Path | None = None) -> dict:
