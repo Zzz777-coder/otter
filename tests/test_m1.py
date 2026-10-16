@@ -220,6 +220,20 @@ def test_make_pdf_generates_real_pdf(tmp_path: Path, monkeypatch):
     assert "make_pdf" not in PLAN_TOOLS  # 写类工具不得进 PLAN 只读白名单
 
 
+def test_make_pdf_missing_lib_degrades(tmp_path: Path, monkeypatch):
+    """2026-10-14 fpdf2 拆出核心依赖(移入 [pdf] extras)后,裸装场景缺库必须优雅降级:
+    返回引导文案(改出 .md/.txt 或提示安装),不落任何文件、不抛异常。"""
+    import sys
+
+    monkeypatch.chdir(tmp_path)
+    # sys.modules 塞 None 可让 `from fpdf import ...` 稳定抛 ImportError(无需真卸载)
+    monkeypatch.setitem(sys.modules, "fpdf", None)
+    tool = MakePdfTool()
+    r = asyncio.run(tool.run({"path": "report.pdf", "content": "# 报告\n内容"}))
+    assert "未安装" in r and "pip install fpdf2" in r
+    assert not (tmp_path / "report.pdf").exists()  # 降级路径绝不落半成品
+
+
 def test_make_pdf_file_changed_event(tmp_path: Path, monkeypatch):
     """R6:make_pdf 成功后同样发 FILE_CHANGED(前端 📎 链接行可见可预览),
     二进制产物 plus/minus 为 None(无文本 diffstat)。"""

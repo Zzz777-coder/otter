@@ -56,3 +56,40 @@ def estimate_messages_tokens(messages: list[Any], tools_json: str = "") -> int:
         total += estimate_tokens(m.content or "")
         total += _tool_calls_tokens(getattr(m, "tool_calls", None) or [])
     return total
+
+
+class EstimationCalibrator:
+    """2026-10-13 新增:估算/真实比值校准器。
+
+    动机:tiktoken(cl100k)对 DeepSeek/Qwen 等非 OpenAI 模型是近似口径,存在系统性
+    偏差;此前压缩触发线靠固定 20% 余量兜底。现改为:每次模型响应后
+    observe(事前估算, 厂商返回的真实 input_tokens),滚动累计均值为 factor,
+    压缩水位判断乘 factor——触发线按当前 provider 的实测偏差自适应。
+
+    护栏:①估算侧 <1000 token 的小请求比值噪声大,跳过;②factor 夹在
+    [0.5, 3.0]——单次异常(如厂商计费口径变化)不会把水位打歪;③无样本时
+    factor=1.0,行为与此前完全一致(渐进增强,不是行为切换)。"""
+
+    MIN_FACTOR = 0.5
+    MAX_FACTOR = 3.0
+    MIN_SAMPLE_EST = 1000  # 小请求的比值噪声大,不进样本
+
+    def __init__(self) -> None:
+        self._total_est = 0
+        self._total_real = 0
+        self.samples = 0
+
+    def observe(self, estimated: int | None, real_input: int | None) -> None:
+        """记一组样本;None(厂商没回 usage)或小样本直接跳过,不影响 factor。"""
+        if not estimated or not real_input or estimated < self.MIN_SAMPLE_EST:
+            return
+        self._total_est += estimated
+        self._total_real += real_input
+        self.samples += 1
+
+    @property
+    def factor(self) -> float:
+        if self.samples == 0 or self._total_est <= 0:
+            return 1.0
+        raw = self._total_real / self._total_est
+        return min(self.MAX_FACTOR, max(self.MIN_FACTOR, raw))

@@ -22,7 +22,6 @@ dependencies = [
     "aiosqlite>=0.20",   # 事件态持久化(messages/runs/events/conversations 表)
     "rich>=13.0",        # TUI 渲染(markdown/工具调用面板)
     "mcp>=1.0",          # M4:MCP 客户端(stdio)
-    "fpdf2>=2.8",        # 2026-09-24 R6:make_pdf 原生生成真 PDF(纯 Python,防伪造二进制交付)
     "httpx2>=2",         # 2026-09-24 Anthropic 原生 adapter 的 HTTP/SSE 层(openai 3.x 同源依赖)
     "tiktoken>=0.7",     # 2026-09-24 发布冒烟暴露:context/estimator 硬 import 却未声明(干净 venv 装完启动即崩)
     "sqlite-vec>=0.1.6", # 2026-09-29 P5:RAG 向量列(vec0 虚拟表);加载失败自动降级纯词法
@@ -41,6 +40,10 @@ gui = [
 server = [
     "fastapi>=0.115",    # 2026-09-29 R1:本地 HTTP API(otter --serve)
     "uvicorn>=0.30",
+]
+pdf = [
+    "fpdf2>=2.8",        # 2026-10-14 从核心依赖拆出:连带 fontTools+pillow 约 31MB,server 镜像用不上;
+                         # make_pdf 工具懒导入,缺库时优雅降级(提示改出 .md/.txt),需 PDF 交付装 otter-agent[pdf]
 ]
 
 [project.scripts]

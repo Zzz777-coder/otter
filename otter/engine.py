@@ -93,12 +93,14 @@ async def build_engine(workspace: str | Path | None = None, config: Config | Non
     reconciled = await store.reconcile_interrupted_runs()
 
     adapter = build_adapter(cfg.base_url, cfg.api_key, cfg.model,
-                            provider=cfg.provider, max_tokens=cfg.max_tokens)
+                            provider=cfg.provider, max_tokens=cfg.max_tokens,
+                            temperature=cfg.temperature, top_p=cfg.top_p)  # 2026-10-13 采样透传
     summary_adapter = (
         adapter
         if not cfg.summary_model
         else build_adapter(cfg.base_url, cfg.api_key, cfg.summary_model,
-                           provider=cfg.provider, max_tokens=cfg.max_tokens)
+                           provider=cfg.provider, max_tokens=cfg.max_tokens,
+                           temperature=cfg.temperature, top_p=cfg.top_p)
     )
 
     from otter.agents_md import load_instructions

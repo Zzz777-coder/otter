@@ -128,11 +128,15 @@ class AnthropicAdapter:
     """Messages API 原生实现(2026-09-24):之前 Anthropic 系模型只能借 OpenAI 兼容层转译。"""
 
     def __init__(self, base_url: str, api_key: str, model: str,
-                 max_tokens: int = DEFAULT_MAX_TOKENS) -> None:
+                 max_tokens: int = DEFAULT_MAX_TOKENS,
+                 temperature: float | None = None, top_p: float | None = None) -> None:
         self.model = model
         self._base = base_url.rstrip("/")
         self._key = api_key
         self._max_tokens = max_tokens
+        # 2026-10-13 新增:采样参数透传(与 openai_compat 同口径,None=不发送)
+        self._temperature = temperature
+        self._top_p = top_p
         self._client = httpx.AsyncClient(timeout=120.0)
 
     async def complete_stream(
@@ -150,6 +154,11 @@ class AnthropicAdapter:
         }
         if system:
             body["system"] = system
+        # 2026-10-13 采样透传:显式配置才发送(Messages API 同名顶层字段)
+        if self._temperature is not None:
+            body["temperature"] = self._temperature
+        if self._top_p is not None:
+            body["top_p"] = self._top_p
         if tools:
             body["tools"] = to_wire_tools(tools)
 

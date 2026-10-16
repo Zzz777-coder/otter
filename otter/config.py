@@ -10,6 +10,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def _opt_float(name: str) -> float | None:
+    """2026-10-13 新增:可选浮点环境变量解析——未设/空串/非法值一律 None(不发送),
+    非法值不炸启动(配置面宽容:采样参数写错不该挡住整个助手)。"""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 def _load_dotenv() -> None:
     """极简 .env 解析(KEY=VALUE,# 开头为注释),不覆盖已存在的环境变量。"""
     candidates = [Path.cwd() / ".env", Path.home() / ".otter" / ".env"]
@@ -48,6 +60,11 @@ class Config:
     # 关闭后装配层不建对应组件,loop 代码不变;默认全开,仅评估/诊断场景关闭
     compress: bool = True          # OTTER_COMPRESS=0 关滚动摘要压缩(超窗由模型端报错兜底)
     memory: bool = True            # OTTER_MEMORY=0 关双层记忆注入与 Run 后反思(检索工具面保留)
+    # ── 2026-10-13 新增:采样参数透传(None=不发送,走服务端默认)──
+    # 工具调用/结构化输出场景建议显式低温度(如 0.0-0.3);此前有意不暴露采样面,
+    # 但零配置导致无法按场景定采样,现按"显式配置才发送"补透传,默认行为不变
+    temperature: float | None = None   # OTTER_TEMPERATURE(空/未设=None)
+    top_p: float | None = None         # OTTER_TOP_P(与 temperature 只建议配一个)
 
     @classmethod
     def load(cls) -> "Config":
@@ -69,4 +86,7 @@ class Config:
             # 2026-10-02 ablation 开关(默认开)
             compress=os.environ.get("OTTER_COMPRESS", "1") not in ("0", "false", "no"),
             memory=os.environ.get("OTTER_MEMORY", "1") not in ("0", "false", "no"),
+            # 2026-10-13 采样透传:空串/未设=None(adapter 层不发送该字段)
+            temperature=_opt_float("OTTER_TEMPERATURE"),
+            top_p=_opt_float("OTTER_TOP_P"),
         )

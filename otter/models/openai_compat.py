@@ -54,8 +54,12 @@ def _to_wire_tools(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
 
 
 class OpenAICompatAdapter:
-    def __init__(self, base_url: str, api_key: str, model: str) -> None:
+    def __init__(self, base_url: str, api_key: str, model: str,
+                 temperature: float | None = None, top_p: float | None = None) -> None:
         self.model = model
+        # 2026-10-13 新增:采样参数透传(None=不发送,走服务端默认;工具调用场景建议显式低温度)
+        self._temperature = temperature
+        self._top_p = top_p
         # 2026-10-02:max_retries=2→0——SDK 内建重试关闭,统一由外层 RetryingAdapter
         # 做指数退避(否则两层叠加,一次瞬态失败最多打 3*2=6 个请求,退避节奏不可控)
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=120.0, max_retries=0)
@@ -75,6 +79,11 @@ class OpenAICompatAdapter:
         del kwargs["stream=True 哨兵"]
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}  # 流式也要真实 usage(事后记账)
+        # 2026-10-13 采样透传:显式配置才发送(None 不带字段,行为与此前完全一致)
+        if self._temperature is not None:
+            kwargs["temperature"] = self._temperature
+        if self._top_p is not None:
+            kwargs["top_p"] = self._top_p
         if tools:
             kwargs["tools"] = _to_wire_tools(tools)
 
@@ -88,6 +97,15 @@ class OpenAICompatAdapter:
             if chunk.usage:
                 usage.input_tokens = chunk.usage.prompt_tokens
                 usage.output_tokens = chunk.usage.completion_tokens
+                # 2026-10-15 缓存命中观测:DeepSeek 扩展字段(官方 SDK 模型未声明,
+                # 以 extra 字段形态出现);不支持的厂商 getattr 返回 None,语义不变
+                hit = getattr(chunk.usage, "prompt_cache_hit_tokens", None)
+                miss = getattr(chunk.usage, "prompt_cache_miss_tokens", None)
+                if hit is None and getattr(chunk.usage, "model_extra", None):
+                    hit = chunk.usage.model_extra.get("prompt_cache_hit_tokens")
+                    miss = chunk.usage.model_extra.get("prompt_cache_miss_tokens")
+                usage.cache_hit_tokens = hit
+                usage.cache_miss_tokens = miss
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]

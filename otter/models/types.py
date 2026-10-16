@@ -44,6 +44,11 @@ class ModelUsage:
 
     input_tokens: int | None = None
     output_tokens: int | None = None
+    # 2026-10-15 缓存命中观测:DeepSeek prompt_cache_hit_tokens/miss_tokens
+    # (Anthropic 为 cache_read_input_tokens,侧字段已预留、待有 key 环境接入);
+    # 沿用"未知即 None"纪律——不支持的厂商保持 None,不伪装成 0
+    cache_hit_tokens: int | None = None
+    cache_miss_tokens: int | None = None
 
     def add(self, other: "ModelUsage") -> None:
         # 累加时保持"未知即 None"语义:任一侧未知,和也未知
@@ -55,6 +60,10 @@ class ModelUsage:
             self.output_tokens = None
         else:
             self.output_tokens += other.output_tokens
+        if self.cache_hit_tokens is None or other.cache_hit_tokens is None:
+            self.cache_hit_tokens = None
+        else:
+            self.cache_hit_tokens += other.cache_hit_tokens
 
 
 @dataclass

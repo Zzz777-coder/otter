@@ -22,7 +22,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
-from otter.context.estimator import estimate_messages_tokens, estimate_tokens
+from otter.context.estimator import EstimationCalibrator, estimate_messages_tokens, estimate_tokens
 from otter.context.summarizer import ConversationSummary, RollingSummarizer
 from otter.models.types import Message, ModelResponse, ModelUsage
 from otter.models.openai_compat import TextDeltaCallback
@@ -176,9 +176,13 @@ class AgentLoop:
         run_budget: int = 3_000_000,  # Run 级费用预算(计费 token;0=禁用);2026-09-24 默认扩至 3M(300k 频繁硬停)
         base_system: str | None = None,  # 2026-09-23 套件化:子代理等可覆盖系统提示(修 SUBAGENT_SYSTEM 死代码)
         reflection_adapter=None,  # v0.3:反思用便宜模型(None=复用主 adapter;Trace 分账独立行)
+        calibrator: EstimationCalibrator | None = None,  # 2026-10-13:估算校准器(None=自建;测试可注入)
     ) -> None:
         self.adapter = adapter
         self.reflection_adapter = reflection_adapter  # v0.3 多模型角色;None=主模型
+        # 2026-10-13:压缩水位校准——tiktoken 对非 OpenAI 模型的系统性偏差按实测
+        # 真实 usage 滚动修正(详见 estimator.EstimationCalibrator)
+        self.calibrator = calibrator if calibrator is not None else EstimationCalibrator()
         self.registry = registry
         self.store = store
         self.on_event = on_event
@@ -256,7 +260,10 @@ class AgentLoop:
         if self.summarizer is None:
             return
         tail = messages[state.covered:]
-        estimated = estimate_messages_tokens(tail) + estimate_tokens(self.instructions)
+        # 2026-10-13:估算乘校准因子(真实/估算的滚动比值)——tiktoken 对 DeepSeek 等
+        # 非 OpenAI 模型是近似口径,固定余量兜底改为按 provider 实测偏差自适应
+        estimated = int((estimate_messages_tokens(tail) + estimate_tokens(self.instructions))
+                        * self.calibrator.factor)
         trigger = int(self.context_budget * self.trigger_ratio)
         if estimated < trigger or len(tail) <= self.keep_recent + 2:
             return
@@ -281,35 +288,44 @@ class AgentLoop:
         state.compressions += 1
 
     def _build_view(self, messages: list[Message], state: SummaryState) -> list[Message]:
-        """请求视图 = system(身份+编辑策略+AGENTS.md+Core记忆+召回+摘要+计划上下文) + 未压缩尾部。
-        2026-09-23 套件化:系统提示可被 base_system 覆盖(子代理),采纳计划文案移至 prompts.py。"""
+        """请求视图 = system(身份+编辑策略+AGENTS.md+Core记忆+技能+摘要+召回+任务快照+预算) + 未压缩尾部。
+        2026-09-23 套件化:系统提示可被 base_system 覆盖(子代理),采纳计划文案移至 prompts.py。
+        2026-10-15 缓存友好重排:各段按变化频率排序(会话稳定段前置、Step 级易变段后置)——
+        DeepSeek/OpenAI 自动缓存与 Anthropic 显式 cache_control 的命中前提都是前缀逐字节一致,
+        易变内容插在中段会把稳定前缀打碎(行业常规:static → dynamic 排序)。"""
         parts = [(self.base_system or BASE_SYSTEM) + self._edit_hint]
         # Plan Mode v2(2026-09-23):产品经理指令(结构化计划契约)+ 采纳计划注入
         if getattr(self, "_plan_mode_directive", False):
             from otter.plans import PLAN_DIRECTIVE
 
             parts[0] += PLAN_DIRECTIVE
-        if getattr(self, "_plan_context", ""):
-            parts.append(approved_plan_note(self._plan_context))
         if self.instructions:
             parts.append(f"<project_instructions>\n{self.instructions}\n</project_instructions>")
-        if getattr(self, "_skills_brief", ""):
-            # 2026-09-24 Skill 注入:转正技能 cue(name+description;正文经 skill_read 按需取)
-            parts.append(self._skills_brief)
-        if getattr(self, "_task_context_text", ""):
-            # v0.3(2026-09-24):活动任务快照注入(预算受控,见 task.render_task_context)
-            parts.append(self._task_context_text)
         if self.memory_bundle:
             _, core, _ = self.memory_bundle
             core_text = core.render()
             if core_text:
                 parts.append(core_text)
-            if self._recall_text:
-                parts.append(self._recall_text)
+        if getattr(self, "_skills_brief", ""):
+            # 2026-09-24 Skill 注入:转正技能 cue(name+description;正文经 skill_read 按需取);
+            # 2026-10-15 后移:技能面 Run 级才变,排 Core 之后维持前缀稳定
+            parts.append(self._skills_brief)
+        if getattr(self, "_plan_context", ""):
+            # 2026-10-15 后移:采纳计划为任务级一次性注入,先于每 Step 变化的快照
+            parts.append(approved_plan_note(self._plan_context))
         if state.summary:
+            # 2026-10-15 后移:滚动摘要仅压缩时变化(Run 内慢变)
             parts.append(state.summary.render())
+        if getattr(self, "_task_context_text", ""):
+            # v0.3(2026-09-24):活动任务快照注入(预算受控,见 task.render_task_context);
+            # 2026-10-15 后移:每 Step 重取的易变段,前置会逐拍破坏前缀命中
+            parts.append(self._task_context_text)
+        if self.memory_bundle and self._recall_text:
+            # 2026-10-15 后移:召回 cue 随任务主题变,置于慢变段之后
+            parts.append(self._recall_text)
         if self._budget_hint:
-            parts.append(self._budget_hint)  # 预算话术随视图注入(不污染消息序列)
+            # 预算话术随视图注入(不污染消息序列);水位话术跨阈值才变,但属 Step 级段,排最后
+            parts.append(self._budget_hint)
         view = [Message(role="system", content="\n\n".join(parts))]
         view.extend(messages[state.covered:])
         return view
@@ -484,18 +500,29 @@ class AgentLoop:
                      # v0.3(2026-09-24):压缩调用的 usage 进事件——Trace 分账
                      # "summary"行数据源(:压缩不免费,账本须可见)
                      "usage_in": _cu.input_tokens if _cu else None,
-                     "usage_out": _cu.output_tokens if _cu else None},
+                     "usage_out": _cu.output_tokens if _cu else None,
+                     # 2026-10-13:本次水位判断所用校准因子(真实/估算滚动比值)——可观测
+                     "est_factor": round(self.calibrator.factor, 3)},
                 )
 
             # ② 请求组装(system+摘要+尾部) + ④ 流式调模型
             await self._emit(run_id, "MODEL_STARTED", {"step": step, "mode": mode})
+            # 2026-10-13 校准采样:请求发出前留一份事前估算(视图+工具表,贴近 wire
+            # 口径),响应真实 usage 回来后 observe 进校准器(见下方 _acc 之后)
+            _view = self._build_view(messages, state)
+            _defs = self._definitions_for(mode)
+            _est_input = estimate_messages_tokens(
+                _view,
+                tools_json=json.dumps(
+                    [{"name": d.name, "description": d.description, "parameters": d.parameters}
+                     for d in _defs], ensure_ascii=False) if _defs else "")
             try:
                 # 2026-10-02:adapter 已由工厂统一套 RetryingAdapter,429/5xx/网络
                 # 抖动在模型层指数退避重试(1s/2s/4s,流已开始则不重放);此处只在
                 # 重试耗尽/不可重试异常时到达——此前任何模型异常直接终止 run,
                 # 长任务几十步进度因一次 429 全丢
                 resp: ModelResponse = await self.adapter.complete_stream(
-                    self._build_view(messages, state), self._definitions_for(mode), on_text_delta
+                    _view, _defs, on_text_delta
                 )
             except ModelRetryExhausted as exc:
                 # 2026-10-02:耗尽分支——事件带尝试次数,用户提示含"端点可能不健康"
@@ -510,6 +537,8 @@ class AgentLoop:
                 return AgentResult(False, f"模型调用失败:{exc}", STOP_ERROR, step, model_calls, total_tool_calls, usage or ModelUsage())
             model_calls += 1
             _acc(resp.usage)
+            # 2026-10-13:真实 input_tokens 回来了,喂给校准器修 factor(下次水位判断生效)
+            self.calibrator.observe(_est_input, resp.usage.input_tokens)
 
             assistant_msg = Message(role="assistant", content=resp.content, tool_calls=resp.tool_calls)
             messages.append(assistant_msg)

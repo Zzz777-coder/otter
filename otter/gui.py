@@ -178,12 +178,14 @@ class OtterWebGui:
         from otter.models import build_adapter
 
         self.adapter = build_adapter(self.config.base_url, self.config.api_key, self.config.model,
-                                     provider=self.config.provider, max_tokens=self.config.max_tokens)
+                                     provider=self.config.provider, max_tokens=self.config.max_tokens,
+                                     temperature=self.config.temperature, top_p=self.config.top_p)  # 2026-10-13 采样透传
         # v0.3(2026-09-24):反思走便宜模型角色(OTTER_SUMMARY_MODEL;空=复用主模型)
         self.reflection_adapter = (
             self.adapter if not self.config.summary_model
             else build_adapter(self.config.base_url, self.config.api_key, self.config.summary_model,
-                               provider=self.config.provider, max_tokens=self.config.max_tokens)
+                               provider=self.config.provider, max_tokens=self.config.max_tokens,
+                               temperature=self.config.temperature, top_p=self.config.top_p)
         )
         convs = await self._conv_payload()
         self._js("onBackendReady", {"model": self.config.model, "conversations": convs})

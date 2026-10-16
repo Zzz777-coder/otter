@@ -6,7 +6,8 @@
 - 滚动摘要输出结构化 JSON 并做代码级校验(schema 不止写在 prompt 里)。
 """
 
-from otter.context.estimator import estimate_messages_tokens, estimate_tokens
+from otter.context.estimator import EstimationCalibrator, estimate_messages_tokens, estimate_tokens
 from otter.context.summarizer import ConversationSummary, RollingSummarizer
 
-__all__ = ["estimate_tokens", "estimate_messages_tokens", "ConversationSummary", "RollingSummarizer"]
+__all__ = ["estimate_tokens", "estimate_messages_tokens", "EstimationCalibrator",
+           "ConversationSummary", "RollingSummarizer"]
