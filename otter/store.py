@@ -29,6 +29,11 @@ class Store:
     async def open(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self.db_path)
+        # 2026-10-21 新增 WAL journal 模式:GUI gui.py:784 只读连接与写连接在默认
+        # rollback journal 下读写互斥,切 WAL 消除锁竞争;持久设置写入文件头。
+        # PRAGMA 有返回行,消费掉游标避免挂起连接上的后续操作。
+        async with self._db.execute("PRAGMA journal_mode=WAL") as cur:
+            await cur.fetchone()
         await self._db.executescript(
             """
             CREATE TABLE IF NOT EXISTS runs(
