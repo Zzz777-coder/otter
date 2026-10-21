@@ -11,6 +11,11 @@ Embedding 接入:任意 OpenAI 兼容 /embeddings 端点(OTTER_EMBED_BASE_URL +
 OTTER_EMBED_MODEL,如 Qwen text-embedding-v3 / Ollama bge-m3 / OpenAI
 text-embedding-3-small);未配置时向量分支整体关闭(纯词法检索,行为与
 之前完全一致)。embed_fn 可注入,测试与生产同一代码路径。
+
+2026-10-21 补精排层:RRF 粗排之后可选 Rerank(交叉编码器打分重排),
+接入 OpenAI 兼容生态 /rerank 端点(Jina/Cohere/硅基流动 bge-reranker 系,
+OTTER_RERANK_* 环境变量);未配置或失败时静默保持 RRF 序——粗排保可用,
+精排锦上添花,检索管线任何一环都不为增值能力牺牲可用性。
 """
 
 from __future__ import annotations
@@ -121,6 +126,62 @@ def build_embed_client_from_env() -> EmbeddingClient | None:
     if not (base and key):
         return None
     return EmbeddingClient(base, key, model)
+
+
+# ── Rerank 客户端(2026-10-21 精排层:OpenAI 兼容生态 /rerank 端点)────
+
+class RerankClient:
+    """/rerank 端点最小封装(2026-10-21):Jina/Cohere/硅基流动 bge-reranker 系通用。
+
+    与 EmbeddingClient 对称:显式 base_url + key + model;请求体
+    {model, query, documents, top_n},响应 results[].index 按相关性降序。
+    """
+
+    def __init__(self, base_url: str, api_key: str, model: str) -> None:
+        self._base = base_url.rstrip("/")
+        self._key = api_key
+        self.model = model
+
+    async def rerank(self, query: str, documents: list[str],
+                     top_n: int | None = None) -> list[int]:
+        """返回按相关性降序的 documents 下标序列(精排的全部产出就是顺序)。"""
+        if not documents:
+            return []
+        import httpx  # openai sdk 的传递依赖,零新增安装
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"{self._base}/rerank",
+                headers={"Authorization": f"Bearer {self._key}"},
+                json={"model": self.model, "query": query,
+                      "documents": documents, "top_n": top_n or len(documents)},
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+            return [int(r["index"]) for r in results
+                    if isinstance(r, dict) and 0 <= int(r.get("index", -1)) < len(documents)]
+
+
+def build_rerank_client_from_env() -> RerankClient | None:
+    """按环境配置构造 Rerank 客户端;未配置模型名 → None(精排关闭)。
+
+    2026-10-21 回退链与 Embedding 一致:RERANK 缺省时逐级回退 EMBED → 主配置
+    ——reranker 与 embedder 同厂商(如硅基流动 bge 系)是常见组合,可少配两行。
+    """
+    import os
+
+    model = os.environ.get("OTTER_RERANK_MODEL", "")
+    if not model:
+        return None
+    base = (os.environ.get("OTTER_RERANK_BASE_URL")
+            or os.environ.get("OTTER_EMBED_BASE_URL")
+            or os.environ.get("OTTER_BASE_URL", ""))
+    key = (os.environ.get("OTTER_RERANK_API_KEY")
+           or os.environ.get("OTTER_EMBED_API_KEY")
+           or os.environ.get("OTTER_API_KEY", ""))
+    if not (base and key):
+        return None
+    return RerankClient(base, key, model)
 
 
 # ── 向量索引(sqlite-vec)────────────────────────────────────────────
@@ -352,6 +413,30 @@ def rrf_fuse(*rankings: list[RagHit], k: int = 60) -> list[RagHit]:
     return fused
 
 
+async def rerank_hits(query: str, hits: list[RagHit], limit: int,
+                      rerank_fn: Callable[[str, list[str]], Any] | None = None
+                      ) -> list[RagHit]:
+    """RRF 粗排后的可选精排(2026-10-21):交叉编码器对 query×候选逐一打分重排。
+
+    rerank_fn 约定:接收 (query, 候选文本列表),返回按相关性降序的候选下标序列
+    (与 RerankClient.rerank 同构,可注入假实现——测试与生产同一代码路径)。
+    降级取向与向量分支一致:未注入/失败/返回不合法 → 原样返回 RRF 序,
+    精排是锦上添花,不因它中断检索;精排遗漏的候选按 RRF 原序垫底,保证不丢结果。
+    """
+    if rerank_fn is None or len(hits) <= 1:
+        return hits[:limit]
+    try:
+        order = await rerank_fn(query, [h.text for h in hits])
+        order = [i for i in order if isinstance(i, int) and 0 <= i < len(hits)]
+    except Exception:
+        return hits[:limit]
+    if not order:  # 空序/全非法:视为精排失败,退回粗排序
+        return hits[:limit]
+    ranked = [hits[i] for i in dict.fromkeys(order)]  # 去重保序
+    ranked += [h for h in hits if h not in ranked]  # 遗漏候选垫底
+    return ranked[:limit]
+
+
 # ── 场景一:Ordinary 记忆混合检索(memory_search 的向量增强)──────────
 
 _MEMORY_INDEX: dict[Path, RagIndex] = {}  # 每记忆目录一个索引(进程内复用连接)
@@ -456,12 +541,15 @@ _DOC_INDEX: dict[Path, RagIndex] = {}  # 每文档根一个索引(进程内复�
 
 async def doc_hybrid_search(root: Path, query: str, limit: int = 5,
                             embed_client: EmbeddingClient | None = None,
-                            embed_fn: Callable[[list[str]], Any] | None = None
+                            embed_fn: Callable[[list[str]], Any] | None = None,
+                            rerank_fn: Callable[[str, list[str]], Any] | None = None
                             ) -> list[RagHit]:
-    """文档混合检索:分片 → 惰性 Embedding → FTS5 ∪ KNN → RRF。
+    """文档混合检索:分片 → 惰性 Embedding → FTS5 ∪ KNN → RRF →(可选)Rerank。
 
     增量索引:分片内容 hash 未变不重新 embed;文件删除后条目自然失配(不主动清)。
     索引落 <根>/.otter/rag/docs.sqlite;chunk_id 用相对路径(#序号),可跨次复用。
+    2026-10-21 精排:RRF 先取放大候选(3×limit)交给 rerank 精选取 limit——
+    粗排保召回,精排管排序;未注入 rerank_fn 时行为与之前完全一致。
     """
     base = root if root.is_dir() else root.parent
     files = [root] if root.is_file() else sorted(
@@ -516,8 +604,10 @@ async def doc_hybrid_search(root: Path, query: str, limit: int = 5,
     fts_hits = index.fts(query, limit=fetch)
     # 2026-09-29 融合前按文档去重:两路各自只留每文档最高排名片,防止
     # 多片沾边的长文档凭块数碾压真正的目标文档
-    return rrf_fuse(_first_hit_per_doc(knn_hits),
-                    _first_hit_per_doc(fts_hits))[:limit]
+    # 2026-10-21 精排:融合取放大候选交 rerank(未配置时 rerank_hits 原样截断)
+    fused = rrf_fuse(_first_hit_per_doc(knn_hits),
+                     _first_hit_per_doc(fts_hits))[:max(limit * 3, limit)]
+    return await rerank_hits(query, fused, limit, rerank_fn)
 
 
 
@@ -526,6 +616,8 @@ class DocSearchTool(Tool):
 
     语义查文档("讲排产的那段在哪个文件")比逐词 grep 更宽容;
     未配置 OTTER_EMBED_MODEL 时自动退纯词法(FTS5),工具仍可用。
+    2026-10-21 精排:配置 OTTER_RERANK_MODEL 后混合检索之上再过
+    reranker(bge-reranker 系),排序更贴相关性;未配置行为不变。
     """
 
     name = "doc_search"
@@ -552,8 +644,12 @@ class DocSearchTool(Tool):
         if not root.exists():
             return f"[otter] 路径不存在:{raw}"
         limit = int(args.get("limit", 5) or 5)
-        hits = await doc_hybrid_search(root, str(args.get("query", "")), limit=limit,
-                                       embed_client=build_embed_client_from_env())
+        # 2026-10-21 精排接入:rerank 客户端与 embed 同法从环境构造,未配置即 None
+        rerank_client = build_rerank_client_from_env()
+        hits = await doc_hybrid_search(
+            root, str(args.get("query", "")), limit=limit,
+            embed_client=build_embed_client_from_env(),
+            rerank_fn=(rerank_client.rerank if rerank_client else None))
         if not hits:
             return "[otter] 没有检索到相关片段"
         return "\n\n".join(f"◆ {h.key}\n{h.text[:400]}" for h in hits)

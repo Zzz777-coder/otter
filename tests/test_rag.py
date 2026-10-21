@@ -206,3 +206,89 @@ def test_doc_search_dedup_per_document(tmp_path: Path, monkeypatch):
     docs = [h.key.split("#")[0] for h in hits]
     assert len(docs) == len(set(docs))  # 结果里同一文档最多一片
     assert "target.md" in docs  # 目标文档在场(不被多片噪声挤出前 5)
+
+
+# ── 精排 Rerank(2026-10-21:RRF 粗排后的可选交叉编码器精排)──────────
+
+def test_rerank_reorders_rrf_results(tmp_path: Path, monkeypatch):
+    """精排改变顺序:假 reranker 把 RRF 第二名提为第一,limit 截断生效。"""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "apple.md").write_text("苹果富含维生素,每天一个医生远离我。\n", encoding="utf-8")
+    # 语料须含话题轴关键词(水果)保证两路都能召回,再留「梨」给 reranker 抓取
+    (tmp_path / "pear.md").write_text("梨子与苹果香蕉同为水果,润肺止咳适合秋冬。\n", encoding="utf-8")
+
+    async def fake_embed(texts):
+        return _semantic_embed(texts)
+
+    async def rerank_boost_pear(query, docs):
+        # 找到"梨"所在候选,把它排到最前(模拟 reranker 认定它更相关)
+        order = sorted(range(len(docs)), key=lambda i: 0 if "梨" in docs[i] else 1)
+        return order
+
+    hits = asyncio.run(doc_hybrid_search(tmp_path, "水果的营养", limit=1,
+                                         embed_fn=fake_embed,
+                                         rerank_fn=rerank_boost_pear))
+    assert hits and "pear.md" in hits[0].key  # 精排意见压过 RRF 序
+
+    # 对照:不注入 rerank 时同一查询仍有结果(RRF 序不受精排开关影响)
+    base = asyncio.run(doc_hybrid_search(tmp_path, "水果的营养", limit=2,
+                                         embed_fn=fake_embed))
+    assert len(base) == 2
+
+
+def test_rerank_failure_falls_back_to_rrf(tmp_path: Path, monkeypatch):
+    """降级:reranker 抛异常 → 静默返回 RRF 原序,检索不中断。"""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "a.md").write_text("内容甲:供应链计划。\n", encoding="utf-8")
+    (tmp_path / "b.md").write_text("内容乙:需求预测。\n", encoding="utf-8")
+
+    async def boom(query, docs):
+        raise RuntimeError("rerank endpoint 503")
+
+    hits = asyncio.run(doc_hybrid_search(tmp_path, "供应链", limit=2, rerank_fn=boom))
+    assert hits  # 有结果即证明走了 RRF 兜底,没有因精排失败而空转
+
+
+def test_rerank_partial_order_pads_missing(tmp_path: Path):
+    """健壮性:精排只回了部分下标 → 遗漏候选按 RRF 原序垫底,不丢结果。"""
+    from otter.rag import RagHit, rerank_hits
+
+    hits = [RagHit(key=f"d{i}", text=f"文档{i}", score=1.0 - i * 0.1) for i in range(4)]
+
+    async def partial(query, docs):
+        return [2, 0]  # 只回两个(还乱序)
+
+    out = asyncio.run(rerank_hits("q", hits, limit=3, rerank_fn=partial))
+    assert [h.key for h in out[:2]] == ["d2", "d0"]  # 精排意见优先
+    assert out[2].key == "d1"  # 遗漏者按 RRF 原序垫底,不丢
+
+    # 返回空序/全非法下标:整体视为失败,退回 RRF 序
+    async def garbage(query, docs):
+        return [99, -1, "x"]
+
+    out2 = asyncio.run(rerank_hits("q", hits, limit=3, rerank_fn=garbage))
+    assert [h.key for h in out2] == ["d0", "d1", "d2"]
+
+
+def test_rerank_client_env_config(monkeypatch):
+    """Rerank 环境配置(与 Embedding 同法):未配→None;独立配置优先;缺省回退。"""
+    from otter.rag import build_rerank_client_from_env
+
+    for k in ("OTTER_RERANK_MODEL", "OTTER_RERANK_BASE_URL", "OTTER_RERANK_API_KEY",
+              "OTTER_EMBED_BASE_URL", "OTTER_EMBED_API_KEY", "OTTER_BASE_URL", "OTTER_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    assert build_rerank_client_from_env() is None  # 未配置=精排关闭
+
+    # 只配模型:base/key 逐级回退 EMBED → 主配置(常见:与 embedder 同厂商 reranker)
+    monkeypatch.setenv("OTTER_RERANK_MODEL", "bge-reranker-v2-m3")
+    monkeypatch.setenv("OTTER_EMBED_BASE_URL", "https://api.siliconflow.cn/v1")
+    monkeypatch.setenv("OTTER_API_KEY", "sk-main")
+    c = build_rerank_client_from_env()
+    assert c is not None and c.model == "bge-reranker-v2-m3"
+    assert "siliconflow" in c._base and c._key == "sk-main"
+
+    # 独立 RERANK 配置优先于回退
+    monkeypatch.setenv("OTTER_RERANK_BASE_URL", "https://api.jina.ai/v1")
+    monkeypatch.setenv("OTTER_RERANK_API_KEY", "sk-rerank")
+    c2 = build_rerank_client_from_env()
+    assert "jina" in c2._base and c2._key == "sk-rerank"
