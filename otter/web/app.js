@@ -315,6 +315,63 @@ function esc(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// ── 正文内联文件链接(2026-10-23)──
+// 需求:助手正文里提到的产物文件(如 agent-capability-stack-notes.pdf)此前是纯文本,
+// 点击无反应;现在点击即用系统默认应用打开。复用后端 open_artifact 两级查找:
+// 纯文件名按产物索引 name 命中,带路径走文件系统直连兜底,无需后端改动。
+const IFL_EXT = "pdf|png|jpe?g|gif|svg|csv|json|md|txt|html?|xlsx|xls|docx|pptx|zip|log|py|ipynb|toml|yaml";
+const IFL_PATH_RE = new RegExp("(\\/?(?:[\\w.\\-\\u4e00-\\u9fff]+\\/)*[\\w.\\-\\u4e00-\\u9fff]+\\.(?:" + IFL_EXT + "))", "i");
+// 纯函数:文本 → [{text}] 与 [{path}] 段序列(测试直接覆盖;DOM 桩无文本节点时应用层安全空转)
+function splitFilePaths(text) {
+  const s = String(text ?? "");
+  const out = []; let last = 0, m;
+  const re = new RegExp(IFL_PATH_RE.source, "gi");  // 每次新建,避免全局正则 lastIndex 串状态
+  while ((m = re.exec(s)) !== null) {
+    if (m.index > last) out.push({ text: s.slice(last, m.index) });
+    out.push({ path: m[0] });
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) out.push({ text: s.slice(last) });
+  return out;
+}
+// DOM 应用:遍历文本节点(跳过 <a> 与已生成的内联链接),路径段替换为可点击 span
+function linkifyFilePaths(el) {
+  if (!el) return;
+  const targets = [];
+  const walk = (node) => {
+    const kids = node.childNodes;          // 测试桩无 childNodes → 不收集,空转不崩
+    if (!kids) return;
+    for (const child of Array.from(kids)) {
+      if (child.nodeType === 3) {
+        if (IFL_PATH_RE.test(child.nodeValue || "")) targets.push(child);
+      } else if (child.nodeType === 1 && child.tagName !== "A" && !(child.classList && child.classList.contains("ifl"))) {
+        walk(child);
+      }
+    }
+  };
+  walk(el);
+  for (const t of targets) {
+    const segs = splitFilePaths(t.nodeValue);
+    if (segs.length <= 1 || !segs.some((s) => s.path)) continue;
+    if (!t.parentNode || typeof t.parentNode.replaceChild !== "function") continue;  // 桩防御
+    const frag = document.createDocumentFragment ? document.createDocumentFragment() : document.createElement("span");
+    for (const seg of segs) {
+      if (seg.path) {
+        const span = document.createElement("span");
+        span.className = "file-link ifl";   // 样式复用现有 .file-link;ifl 仅作识别标记
+        span.textContent = seg.path;
+        span.title = "点击用系统默认应用打开";
+        const p = seg.path;
+        span.addEventListener("click", () => openViaApi({ path: p }));
+        frag.appendChild(span);
+      } else {
+        frag.appendChild(document.createTextNode(seg.text));
+      }
+    }
+    t.parentNode.replaceChild(frag, t);
+  }
+}
+
 function renderMarkdown(el, text) {
   el.innerHTML = "";
   if (!text) return;
@@ -327,6 +384,7 @@ function renderMarkdown(el, text) {
   html = html.replace(/<script[\s\S]*?<\/script>/gi, "");  // 轻量安全过滤
   el.innerHTML = html;
   enhanceCodeBlocks(el);
+  linkifyFilePaths(el);  // 2026-10-23:正文里的文件路径变为可点击,点击调系统默认应用打开
 }
 
 // ── 消息组件 ─────────────────────────────────────────────────────

@@ -80,7 +80,7 @@ const appSrc = fs.readFileSync(path.join(WEB, "app.js"), "utf-8");
 (0, eval)(markedSrc);
 // app.js 首行 "use strict":严格模式下 eval 的 function 声明不外泄——
 // 尾部追加显式导出(同作用域内赋值给 global)
-(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, loadRuns, renderMemory, renderArtifacts, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange, beginRename };");
+(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, splitFilePaths, linkifyFilePaths, loadRuns, renderMemory, renderArtifacts, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange, beginRename };");
 if (!global.__exports || typeof global.__exports.renderMarkdown !== "function") {
   console.error("renderMarkdown 导出失败");
   process.exit(1);
@@ -835,6 +835,25 @@ check("面板行含预览/打开按钮", artRows[0] && artRows[0].querySelectorA
     check("回放空终稿轮的用量不丢(挂块尾)", eblocks.length === 1
           && eblocks[0].querySelectorAll(".usage").length === 1
           && String(eblocks[0].querySelectorAll(".usage")[0].textContent) === "本轮 7 in / 3 out tokens");
+  }
+
+  // ── 内联文件链接(2026-10-23):正文路径可点击打开 ──
+  {
+    const { splitFilePaths, linkifyFilePaths, renderMarkdown } = global.__exports;
+    const segs = splitFilePaths("已生成 agent-capability-stack-notes.pdf,归档在 .otter/artifacts/20261023-x/agent-capability-stack-notes.pdf");
+    check("路径拆分:纯文件名命中", segs.some((x) => x.path === "agent-capability-stack-notes.pdf"));
+    check("路径拆分:相对全路径命中", segs.some((x) => x.path === ".otter/artifacts/20261023-x/agent-capability-stack-notes.pdf"));
+    check("路径拆分:普通文本段保留", segs.some((x) => x.text && x.text.includes("已生成")));
+    check("路径拆分:无扩展名不误判", splitFilePaths("版本 0.2.0 发布于 2026-10-23").every((x) => !x.path));
+    check("路径拆分:中文文件名命中", splitFilePaths("报告见 otter-0.2.0-测试报告.md").some((x) => x.path === "otter-0.2.0-测试报告.md"));
+    check("路径拆分:绝对路径命中", splitFilePaths("原件在 /Users/z/a/调研笔记.csv").some((x) => x.path === "/Users/z/a/调研笔记.csv"));
+    check("路径拆分:目录无扩展名不命中", splitFilePaths("目录 .otter/artifacts/20261023-x/ 下").every((x) => x.path !== ".otter/artifacts/20261023-x/"));
+    // 桩 DOM 无文本节点:renderMarkdown 集成调用应安全空转不崩(真实浏览器行为靠 --gui-artifact-probe 类真机验收)
+    const t2 = el();
+    renderMarkdown(t2, "见 `agent-capability-stack-notes.pdf` 原始文件");
+    check("renderMarkdown 集成:含路径文本渲染不崩", typeof t2.innerHTML === "string");
+    linkifyFilePaths(null);
+    check("linkifyFilePaths(null) 安全返回", true);
   }
 
   console.log(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);
