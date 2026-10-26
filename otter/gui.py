@@ -306,6 +306,22 @@ class OtterWebGui:
             self._js("onDone", {"summary": result.summary(), "final_text": result.final_text,
                                 "usage_in": result.usage.input_tokens,
                                 "usage_out": result.usage.output_tokens})
+            # 2026-10-26 A2 补缺:GUI 接技能簇挖掘入口——CLI(repl)早有,GUI 是主入口
+            # 却没接,提炼闭环在 GUI 断头(技能只进不出)。与 repl 同款:凑满一批
+            # Completed Task 触发,反思级模型挖掘,失败静默不影响主结果
+            if result.ok and agent.adapter is not None:
+                try:
+                    from otter.skill_learning import maybe_run_mining
+
+                    task_store = getattr(agent.registry, "task_store", None)
+                    if task_store is not None:
+                        note = await maybe_run_mining(
+                            getattr(agent, "reflection_adapter", None) or agent.adapter,
+                            task_store, self.store)
+                        if note:
+                            self._js("onEvent", {"type": "SKILL_DISTILLED", "note": note})
+                except Exception:
+                    pass
         except asyncio.CancelledError:
             # 2026-09-22 用户要求:思考中的停止键——取消运行中的任务,诚实落终态
             # 2026-09-24:终态 interrupted → cancelled(协作取消/硬取消/REPL Ctrl+C 三路统一)
