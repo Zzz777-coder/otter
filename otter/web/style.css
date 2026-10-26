@@ -379,7 +379,11 @@ body {
 .seg-btn[data-mode="plan"].active { background: #b8489b; color: #fff; }
 
 /* ── 运行历史 / 设置页 ── */
-#page-runs, #page-settings, #page-memory, #page-artifacts { grid-column: 2; grid-row: 1; padding: 18px 22px; width: 100%; }
+/* 2026-10-26 真机三轮暴露:技能页漏进本选择器——缺 grid 第2列定位与四周留白
+   (18px 22px),内容贴窗口左边缘(用户"左侧空出适当位置你又忘了")。至此新页面
+   接入清单四件套集齐:①本条(grid定位+padding)②列方向(下一条)③容器滚动
+   (#skillsScroll)④DOM 结构——少抄任何一条都会以不同症状翻车 */
+#page-runs, #page-settings, #page-memory, #page-artifacts, #page-skills { grid-column: 2; grid-row: 1; padding: 18px 22px; width: 100%; }
 /* 2026-09-24 用户要求:运行历史改整屏行分布的历史记录块,取消左右分栏 */
 #page-runs { flex-direction: column; min-height: 0; }
 
