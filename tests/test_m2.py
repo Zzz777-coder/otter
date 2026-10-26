@@ -35,8 +35,9 @@ def test_engine_default_and_precedence(tmp_path: Path):
 def test_readonly_general_tools_allow():
     # 2026-09-29 #55 回归:只读通用工具必须默认 ALLOW——此前未列落到 ASK,
     # dispatch 子代理内审批无人可点被 fail-closed 拒绝(真机暴露 run45 current_time)
+    # 2026-10-26 补 web_search(#55 同族遗漏,真机暴露 run35:联网调研弹权限窗)
     engine = PermissionEngine(rules_file=Path("/nonexistent-55.json"))
-    for tool in ("current_time", "web_fetch", "calculate"):
+    for tool in ("current_time", "web_fetch", "calculate", "web_search"):
         assert engine.decide(tool, {}) == ALLOW, tool
 
 

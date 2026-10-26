@@ -50,6 +50,9 @@ DEFAULT_RULES: list[tuple[str, str | None, str]] = [
     ("current_time", None, ALLOW),  # 纯读系统时钟,无副作用
     ("web_fetch", None, ALLOW),  # 只读抓网页;bash 已 ALLOW(可 curl),口径保持一致
     ("calculate", None, ALLOW),  # 纯本地算术,无副作用
+    # 2026-10-26 真机暴露(#55 同族遗漏):web_search 未列 → 落 ASK → 每次联网
+    # 调研都弹权限确认窗,用户误以为"调研要读写权限";与 web_fetch 同口径放行
+    ("web_search", None, ALLOW),  # 只读联网搜索,无副作用
 ]
 
 RULES_FILE = Path.home() / ".otter" / "permissions.json"
