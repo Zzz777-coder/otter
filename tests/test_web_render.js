@@ -481,9 +481,12 @@ check("面板行含预览/打开按钮", artRows[0] && artRows[0].querySelectorA
     && coreListEl.children[0]._cl.has("conv-empty") && memListEl.children[0]._cl.has("conv-empty"));
 
   // 10b) 技能页(2026-10-26 新增):renderSkills 两区渲染+搜索过滤+候选描边类
+  // 注意回落链:保存"当前"劫持(记忆页版)再覆盖——回落到更早的 _qm 会把
+  // 后续记忆页渲染送进全局桩,M009 段断言拿不到局部 El 而炸(已踩)
   const skillListEl = new El("div"), skillCandEl = new El("div");
+  const _qprev = document.querySelector;
   document.querySelector = (s) => (s === "#skillList" ? skillListEl
-    : s === "#skillCandList" ? skillCandEl : _qm(s));
+    : s === "#skillCandList" ? skillCandEl : _qprev(s));
   const { renderSkills } = global.__exports;
   renderSkills({
     confirmed: [{ name: "otter-triage", description: "三步诊断法",

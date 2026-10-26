@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
   <title>otter</title>
   <!-- 2026-09-22:版本查询串绕 WKWebView 静态缓存;marked(MIT)标准 markdown 渲染 -->
-  <link rel="stylesheet" href="style.css?v=20261026a" /><!-- 20261026a:子代理卡片紧凑化(与 app.js 同步 bump) -->
+  <link rel="stylesheet" href="style.css?v=20261026b" /><!-- 20261026b:技能页搜索框置顶单行样式(此前漏配规则吃浏览器默认) -->
 </head>
 <body>
   <!-- 左侧图标栏 -->
@@ -126,10 +126,10 @@
   <div class="page" id="page-skills">
     <div class="runs-head">
       <div class="panel-title">技能</div>
+      <input id="skillSearch" type="text" placeholder="搜索技能" autocomplete="off" /><!-- 2026-10-26 用户要求:置顶单行、适当宽度,不单独占一排 -->
       <span class="ws-tag" id="wsTagSkills" title="当前查看的工作区(在历史记录页切换)"></span>
       <button id="reloadSkills" title="刷新">↻</button>
     </div>
-    <input id="skillSearch" type="text" placeholder="搜索" autocomplete="off" />
     <div id="skillsScroll">
       <div class="mem-sec">已转正 · 常驻注入 system</div>
       <div id="skillList"></div>

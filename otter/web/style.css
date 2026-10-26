@@ -157,6 +157,11 @@ body {
 
 /* 2026-10-26 技能页:候选条目虚线描边(与转正区视觉区分,提示未生效) */
 .mem-item.skill-cand { border: 1px dashed #d9b98a; background: #fdfaf3; }
+/* 2026-10-26 用户反馈:技能页搜索框吃浏览器裸默认样式(当时漏配规则)——
+   按要求做成置顶标题行内、适当宽度、单行(不影响记忆/交付物页的既有搜索框) */
+#skillSearch { width: 220px; padding: 5px 10px; border: 1px solid var(--border);
+  border-radius: 6px; font: inherit; font-size: 12px; color: var(--text); outline: none; }
+#skillSearch:focus { border-color: var(--accent); }
 
 /* 2026-10-26 子代理卡片(参考 Claude Code 紧凑条改版,旧三段式弃用):
    head 单行(角色+Run+右侧计数)/ 任务单行截断 / 当前动作单行 / 结论区 */

@@ -217,8 +217,8 @@ class FileMemoryStore:
 
 
 # ── 确定性召回 + 反思门控 ──
-
-_RECALL_SIGNAL = re.compile(r"记住|以后|下次|偏好|习惯|总是|不要忘|remember|prefer|always")
+# 2026-10-26:_RECALL_SIGNAL 信号词表随门控改版移除(反思改为非寒暄一律放行,
+# 信号词分支不再存在,定义成无引用死代码)
 
 
 def recall_query(user_message: str, recent_users: list[str], objective: str) -> str:
@@ -228,9 +228,13 @@ def recall_query(user_message: str, recent_users: list[str], objective: str) -> 
 
 
 def reflection_should_run(user_message: str, recalled: bool) -> bool:
-    """保守门控:命中长期信号词或有召回 → 反思;寒暄/能力询问 → 跳;不确定 → 放行。"""
+    """保守门控:命中长期信号词或有召回 → 反思;寒暄 → 跳;其余普通任务 → 放行。
+
+    2026-10-26 真机暴露冷启动死锁:原实现"无信号词且无召回 → 不跑"与 docstring
+    '不确定 → 放行'的意图相反——空库永远无召回,用户又没说过信号词,反思器
+    一次都没执行过(MEMORY_REFLECTION 事件 0 次),第一条记忆永远写不进去。
+    修正为非寒暄即放行:每 Run 一次便宜模型反思(reflection_adapter),多数判
+    none 不写,有价值才落库——由 REFLECT_PROMPT 把内容关,门控只挡寒暄省调用。"""
     if len(user_message) < 6:  # 过短(寒暄)跳过
         return False
-    if _RECALL_SIGNAL.search(user_message):
-        return True
-    return recalled
+    return True

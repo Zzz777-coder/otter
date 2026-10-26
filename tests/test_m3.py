@@ -60,6 +60,9 @@ def test_recall_query_deterministic_and_gate():
     assert reflection_should_run("请记住我偏好黑色主题", recalled=False) is True
     assert reflection_should_run("在吗", recalled=False) is False        # 寒暄跳过
     assert reflection_should_run("把这两个文件重构一下并跑通测试", recalled=True) is True  # 有召回放行
+    # 2026-10-26 冷启动死锁回归(真机暴露:MEMORY_REFLECTION 事件 0 次):普通任务
+    # 无信号词且无召回也必须放行——空库永远无召回,若不放行第一条记忆永远写不进
+    assert reflection_should_run("把这两个文件重构一下并跑通测试", recalled=False) is True
 
 
 def test_memory_write_requires_read_and_revision(tmp_path: Path):
