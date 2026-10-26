@@ -101,8 +101,14 @@ class SubagentTool(Tool):
         started = asyncio.get_running_loop().time()
         await _announce(sink, self._store, parent_rid, "SUBAGENT_STARTED",
                         {"via": "explore", "run_id": run_id, "task": task[:200], "max_steps": 12})
+        # 2026-10-26 真机 run37 暴露:子代理 loop 未传 activated_tools → 用自己的
+        # 空集合做"未激活即拒绝"硬校验,而 tool_search 实例写的是主会话集合——
+        # 子代理里"激活 web_search 成功→调用仍报未激活"死循环,12 步全耗在重试。
+        # 修法:与 tool_search 共享同一集合(复制实例时它携带的就是主会话集合)
+        _ts = sub_registry.get("tool_search")
         loop = AgentLoop(
             self._adapter, sub_registry, self._store,
+            activated_tools=_ts.activated if _ts is not None else set(),
             on_event=on_event,
             base_system=SUBAGENT_SYSTEM,  # 2026-09-23 修复 wiring:此前该提示从未注入,子代理跑的是主循环 BASE_SYSTEM
         )  # 子代理限步在 run() 传:探索型任务 12 步足够
@@ -302,8 +308,12 @@ class WritableSubagentTool(Tool):
         await _announce(sink, self._store, parent_rid, "SUBAGENT_STARTED",
                         {"via": "subagent", "run_id": run_id, "task": task[:200],
                          "write": level, "max_steps": 15})
+        # 2026-10-26 同 explore:激活集合与 tool_search 实例共享,否则子代理内
+        # "激活后调用仍报未激活"(真机 run37:12 步全耗在激活死循环,调研失败)
+        _ts = sub_registry.get("tool_search")
         loop = AgentLoop(
             self._adapter, sub_registry, self._store,
+            activated_tools=_ts.activated if _ts is not None else set(),
             on_event=on_event,
             base_system=SUBAGENT_WRITABLE_SYSTEM,
             # 2026-09-29 L2:写盘审批复用主循环通道——GUI 场景弹同款 diff 卡片,

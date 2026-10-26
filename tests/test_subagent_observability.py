@@ -191,6 +191,60 @@ def test_orchestrate_role_boundary_events(tmp_path: Path):
     # worker 内部动作也带 via+run_id 归组标记(worker 用只读面,无工具调用则跳过)
 
 
+def test_subagent_activation_set_shared(tmp_path: Path, monkeypatch):
+    """2026-10-26 回归(真机 run37 暴露):子代理 loop 必须与 tool_search 实例
+    共享激活集合——此前子代理 AgentLoop 未传 activated_tools,用自己的空集合
+    做"未激活即拒绝"硬校验,而 tool_search 写的是主会话集合,两边不同步导致
+    子代理里"激活 web_search 成功→调用仍报未激活"死循环(12 步全耗在重试)。
+    修复:三处子代理 loop 构造传 tool_search.activated(同一集合对象)。"""
+    monkeypatch.chdir(tmp_path)
+
+    from otter.subagent import SubagentTool
+    from otter.tools.base import Tool, ToolRegistry
+    from otter.tools.deferred import ToolSearchTool
+
+    class _ProbeTool(Tool):
+        name = "web_search"
+        description = "联网搜索(测试桩)"
+        parameters = {"type": "object", "properties": {"query": {"type": "string"}}}
+        deferred = True  # 走 loop 的"未激活即拒绝"硬校验分支
+
+        def __init__(self):
+            self.called = 0
+
+        async def run(self, args):
+            self.called += 1
+            return "结果列表"
+
+    class ActivatingAdapter:
+        model = "fake"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def complete_stream(self, messages, tools=None, on_text_delta=None):
+            self.calls += 1
+            if self.calls == 1:  # 先激活
+                return ModelResponse(tool_calls=[ToolCall(
+                    id="c1", name="tool_search", arguments={"keywords": "web_search"})],
+                    usage=ModelUsage(10, 5))
+            if self.calls == 2:  # 再调用(修复前此处被拒:"未激活"死循环)
+                return ModelResponse(tool_calls=[ToolCall(
+                    id="c2", name="web_search", arguments={"query": "x"})],
+                    usage=ModelUsage(10, 5))
+            return ModelResponse(content="查到了。", usage=ModelUsage(10, 5))
+
+    reg = ToolRegistry()
+    probe = _ProbeTool()
+    reg.register(probe)
+    reg.register(ToolSearchTool(reg, set()))  # tool_search 持主会话集合(与 GUI 装配同构)
+    reg.task_ctx = {"run_id": 55}
+
+    tool = SubagentTool(ActivatingAdapter(), reg, MemStore())
+    r = asyncio.run(tool.run({"task": "联网查证"}))
+    assert probe.called == 1 and "查到了" in r  # 激活→调用放行执行,不再被"未激活"拦下
+
+
 def _seed_db(path: Path) -> None:
     db = sqlite3.connect(path)
     db.execute("CREATE TABLE runs (id INTEGER PRIMARY KEY, status TEXT, stop_reason TEXT,"

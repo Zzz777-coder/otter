@@ -126,7 +126,11 @@ class Orchestrator:
         """跑一个角色(独立 AgentLoop/独立上下文),返回 (最终文本, 是否正常收尾)。"""
         events: list[str] = []
         rid_box = [None]  # 2026-10-25 run_id 延迟填充盒:事件回调闭包读取(new_run 后回填)
+        # 2026-10-26 同 explore/dispatch:角色 loop 与 tool_search 共享激活集合,
+        # 否则角色内"激活后调用仍报未激活"(真机 run37 暴露的同款不同步)
+        _ts = registry.get("tool_search")
         loop = AgentLoop(self._adapter, registry, self._store,
+                         activated_tools=_ts.activated if _ts is not None else set(),
                          on_event=self._make_on_event(role, events, rid_box) if role else None,
                          base_system=system,
                          preview_gate=self._preview_gate,
