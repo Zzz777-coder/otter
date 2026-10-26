@@ -317,34 +317,37 @@ otterUI2.onDone({ summary: "空", final_text: "" });
 check("无新文件时不再出文件卡",
       threadEl.children.filter((c) => c._cl.has("fc-card")).length === 1);
 
-// 8g. 子代理三段式卡片(2026-10-25 用户点名形态):派出横幅带任务原文 →
-//     处理中步骤行按 via+run_id 归组进卡 → 完成后结论(答案)直接渲染;
+// 8g. 子代理紧凑卡片(2026-10-26 参考 Claude Code 改版):head 单行(角色+Run+右侧
+//     实时计数)→ 任务单行(全文走 title)→ 当前动作单行实时替换 → 完成后结论直出;
 //     无 STARTED 的散件 via 事件退回旧过程行路径(8a 段已覆盖,兼容回放)
 otterUI2.onEvent({ type: "SUBAGENT_STARTED", via: "explore", run_id: 11,
                    task: "找到所有处理审批的函数", max_steps: 12 });
 const scard = threadEl.children.find((c) => c._cl.has("sub-card"));
-check("SUBAGENT_STARTED 建卡:横幅含角色与 Run 号", scard !== undefined
-      && textOf(scard.querySelector(".sub-head")).includes("派出探索 agent")
+check("SUBAGENT_STARTED 建卡:head 含角色与 Run 号", scard !== undefined
+      && textOf(scard.querySelector(".sub-head")).includes("探索 agent")
       && textOf(scard.querySelector(".sub-head")).includes("Run #11"));
-check("任务原文上卡(派出即可见去干什么)",
-      scard !== undefined && textOf(scard.querySelector(".sub-task")).includes("找到所有处理审批的函数"));
+check("任务原文上卡(派出即可见去干什么,单行截断+title 全文)",
+      scard !== undefined && textOf(scard.querySelector(".sub-task")).includes("找到所有处理审批的函数")
+      && scard.querySelector(".sub-task").title === "找到所有处理审批的函数");
 const beforeSubProc = plogMetas();
 otterUI2.onEvent({ type: "TOOL_STARTED", step: 1, name: "read_file",
                    arguments: { path: "a.py" }, via: "explore", run_id: 11 });
-check("处理中步骤进卡片(不混主过程块)", scard !== undefined
-      && scard.querySelector(".sub-proc").children.length === 1
+check("当前动作进卡片单行(不混主过程块)", scard !== undefined
+      && textOf(scard.querySelector(".sub-now")).includes("read_file")
       && plogMetas() === beforeSubProc);
-check("处理中标题实时计数", scard !== undefined
-      && scard.querySelector(".sub-proc-title").textContent.includes("1 项"));
+check("head 右侧实时工具计数", scard !== undefined
+      && textOf(scard.querySelector(".sub-status")).includes("1 工具"));
 otterUI2.onEvent({ type: "TOOL_COMPLETED", step: 1, name: "read_file",
                    via: "explore", run_id: 11 });
-check("完成步骤行打勾", scard !== undefined
-      && scard.querySelector(".sub-step")._cl.has("ok"));
+check("动作完成打勾", scard !== undefined
+      && scard.querySelector(".sub-now")._cl.has("ok"));
 otterUI2.onEvent({ type: "SUBAGENT_COMPLETED", via: "explore", run_id: 11, ok: true,
                    steps: 3, tool_calls: 1, duration: 2.5, result: "找到 3 处相关实现" });
 check("完成状态行(步数/工具数/耗时)", scard !== undefined
-      && textOf(scard.querySelector(".sub-status")).includes("完成")
-      && textOf(scard.querySelector(".sub-status")).includes("3 步"));
+      && textOf(scard.querySelector(".sub-status")).includes("3 步")
+      && textOf(scard.querySelector(".sub-status")).includes("1 工具"));
+check("过程行收口移除(完成后只留结论)", scard !== undefined
+      && scard.querySelector(".sub-now") === null);
 check("结论(答案)直接上卡", scard !== undefined
       && (scard.querySelector(".sub-result").innerHTML || "").includes("找到 3 处"));
 check("状态栏提示结论已带回", (statusEl.textContent || "").includes("结论已带回"));
@@ -370,6 +373,15 @@ const asstBlocks = threadEl.children.filter((c) => c._cl.has("msg-assistant"));
 check("实时多段同块(一次回复一个头像)", asstBlocks.length === asstBase + 1);
 check("同块两段 .md-chunk", asstBlocks.length > 0
       && asstBlocks[asstBlocks.length - 1].querySelector(".body").querySelectorAll(".md-chunk").length === 2);
+// 2026-10-26 断段回归(真机"我"字孤立成行):本段调用序正是防抖窗口内
+// MODEL_STARTED 抢跑——修复前缓冲里未上屏的"段A"被静默丢弃(半句话断成两截)。
+// 冲刷修复后:换段前先把缓冲终渲染进当前段,正文零丢失
+{
+  const chunks = asstBlocks[asstBlocks.length - 1].querySelector(".body").querySelectorAll(".md-chunk");
+  check("防抖窗口内换段不丢正文(冲刷修复)", chunks.length === 2
+        && (chunks[0].innerHTML || "").includes("段A")
+        && (chunks[1].innerHTML || "").includes("段B"));
+}
 
 // 8g. 回放补发文件(2026-09-29 用户终版):onHistoryFiles 以「产出文件」卡统一
 //     收尾(不再链接行),胶囊同步重灌

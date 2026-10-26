@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
   <title>otter</title>
   <!-- 2026-09-22:版本查询串绕 WKWebView 静态缓存;marked(MIT)标准 markdown 渲染 -->
-  <link rel="stylesheet" href="style.css?v=20260929h" /><!-- 20260924u:新建/打开工作区入口 -->
+  <link rel="stylesheet" href="style.css?v=20261026a" /><!-- 20261026a:子代理卡片紧凑化(与 app.js 同步 bump) -->
 </head>
 <body>
   <!-- 左侧图标栏 -->
@@ -124,6 +124,6 @@
 
   <footer id="statusbar">启动中…</footer>
   <script src="marked.min.js?v=1"></script>
-  <script src="app.js?v=20261023a"></script><!-- 20261023a:正文内联文件路径可点击打开 -->
+  <script src="app.js?v=20261026a"></script><!-- 20261026a:子代理卡片紧凑化+流式断段修复(上一版漏 bump 致 WKWebView 命中缓存跑旧前端,卡片整段未上屏——教训:改前端必同步 bump) -->
 </body>
 </html>

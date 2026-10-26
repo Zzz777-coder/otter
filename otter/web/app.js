@@ -126,7 +126,14 @@ window.otterUI = {
     // 2026-09-23:PLAN 模式的 step 行加徽标(模式已常驻,run 级 mode 随事件携带)
     // 2026-09-29 用户要求"一次回复一个头像":MODEL_STARTED 不再收口开新块——
     // 工具轮只是换一段(currentChunk 置空,下段正文续进同一头像块)
-    if (type === "MODEL_STARTED") { rawBuf = ""; currentChunk = null; ensureThinking(); meta("system", `${p.via ? "🦦" + p.via + " · " : ""}step ${p.step}${p.mode === "plan" ? " · PLAN" : ""}`); }
+    if (type === "MODEL_STARTED") {
+      // 2026-10-26 断段修复(真机截图暴露:"我"字孤立成行):防抖 120ms 窗口内
+      // MODEL_STARTED 抢先到达会把 currentChunk 置空,稍后定时器因 chunk 为 null
+      // 跳过渲染——缓冲里未上屏的正文被永久丢弃,或半句话被切成两段显示成硬换行。
+      // 开新段前先冲刷:缓冲有残留立即终渲染进当前段,任何时序下正文零丢失
+      if (rawBuf.trim() && currentChunk) renderMarkdown(currentChunk, rawBuf);
+      rawBuf = ""; currentChunk = null; ensureThinking(); meta("system", `${p.via ? "🦦" + p.via + " · " : ""}step ${p.step}${p.mode === "plan" ? " · PLAN" : ""}`);
+    }
     // 2026-10-25 子代理三段式卡片(用户要求):派出横幅(任务原文)→ 下方实时
     // "处理中"步骤列表 → 完成后直接给出结论;过程事件按 via+run_id 归组进卡
     else if (type === "SUBAGENT_STARTED") { subCardOpen(p); }
@@ -755,9 +762,11 @@ async function toggleFilePreview(p, anchor) {
   scrollBottom();
 }
 
-// ── 2026-10-25 子代理三段式卡片(用户点名形态)──
-// 派出即建卡:横幅「🦦 派出探索 agent」+ 任务原文;执行期下方实时追加
-// 「处理中」步骤行(每条工具调用);完成时状态行收口 + 直接渲染结论(答案)。
+// ── 2026-10-26 子代理卡片(参考 Claude Code 紧凑条形态,用户点名改版)──
+// 三要素不变(任务可见/过程可见/答案直出),呈现压成紧凑条:
+// head 单行(角色+Run · 右侧实时计数)→ 任务单行截断(hover 看全文)→
+// 当前动作单行实时替换(不堆历史步骤——旧版逐行列表是"重"的主因)→
+// 完成后 head 收成统计行,结论 markdown 直接上卡。
 // 归组 key=via+run_id:orchestrate 的 planner/workerN/reviewer 各自成卡。
 const subCards = new Map();
 function subCardKey(p) { return `${p.via || "?"}#${p.run_id != null ? p.run_id : "?"}`; }
@@ -783,52 +792,50 @@ function subCardOpen(p) {
   const title = document.createElement("span");
   title.className = "sub-title";
   const tag = p.write && p.write !== "none" ? ` · 权限 ${p.write}` : "";
-  title.textContent = `🦦 派出${subViaName(p.via)} · Run #${p.run_id != null ? p.run_id : "?"}${tag}`;
+  title.textContent = `🦦 ${subViaName(p.via)} · Run #${p.run_id != null ? p.run_id : "?"}${tag}`;
   const status = document.createElement("span");
   status.className = "sub-status run";
-  status.textContent = "运行中…";
+  status.textContent = "⟳ 运行中";
   head.append(title, status);
+  // 任务行:单行截断(Claude 式紧凑),title 带全文供悬停查看;
+  // textContent 直写不进 innerHTML,防注入
   const task = document.createElement("div");
   task.className = "sub-task";
-  task.textContent = p.task || "";  // textContent 直写:任务文本不进 innerHTML,防注入
-  const procTitle = document.createElement("div");
-  procTitle.className = "sub-proc-title";
-  procTitle.textContent = "处理中";
-  const proc = document.createElement("div");
-  proc.className = "sub-proc";
+  task.textContent = p.task || "";
+  task.title = p.task || "";
+  // 当前动作行:运行期单行实时替换(新动作覆盖旧动作,不堆列表)
+  const now = document.createElement("div");
+  now.className = "sub-now";
+  now.textContent = "准备中…";
   card._steps = 0;
   card._status = status;
-  card._procTitle = procTitle;
-  card.append(head, task, procTitle, proc);
+  card._now = now;
+  card.append(head, task, now);
   mountAboveThinking(card);
   subCards.set(subCardKey(p), card);
   $("#statusbar").textContent = `🦦 ${subViaName(p.via)} 已派出,处理中…`;
   scrollBottom();
 }
 function subCardStep(card, p) {
-  // 处理中步骤行:每条工具调用实时上屏(默认展开,答案出来后随卡收口)
-  const proc = card.querySelector(".sub-proc");
-  const row = document.createElement("div");
-  row.className = "sub-step";
+  // 当前动作行实时替换 + head 右侧计数刷新—— Claude 式"一眼看到在干嘛"
   const args = JSON.stringify(p.arguments || {});
-  row.textContent = `⚡ ${p.name} ${args.length > 110 ? args.slice(0, 110) + "…" : args}`;
-  proc.appendChild(row);
+  card._now.textContent = `⚡ ${p.name} ${args.length > 90 ? args.slice(0, 90) + "…" : args}`;
+  card._now.classList.remove("ok");  // 新动作覆盖时清掉上一动作的打勾态
   card._steps += 1;
-  card._procTitle.textContent = `处理中 · ${card._steps} 项`;
-  card._lastRow = row;  // 最近一行:TOOL_COMPLETED 打勾回写目标
-  card._status.textContent = `运行中 · 最近 ${p.name}`;
+  card._status.textContent = `⟳ 运行中 · ${card._steps} 工具`;
   scrollBottom();
 }
 function subCardStepDone(card, p) {
-  if (card._lastRow) card._lastRow.classList.add("ok");  // 最近步骤行打勾
+  // 动作完成:当前行前缀打勾(视觉确认,下一个动作到达时自然覆盖)
+  if (card._now) card._now.classList.add("ok");
 }
 function subCardClose(p) {
   const card = subCardOf(p);
   if (!card) { meta("ok", `🦦 子代理完成:${subViaName(p.via)} · ${p.steps || "?"} 步`); return; }
-  card._status.textContent = `✔ 完成 · ${p.steps || "?"} 步 · ${p.tool_calls || 0} 次工具 · ${p.duration || "?"}s`;
+  card._status.textContent = `✓ ${p.steps || "?"} 步 · ${p.tool_calls || 0} 工具 · ${p.duration || "?"}s`;
   card._status.classList.remove("run");
   card._status.classList.add("done");
-  card._procTitle.textContent = `处理过 ${card._steps} 项事宜`;
+  if (card._now) card._now.remove();  // 过程行收口:完成后只留结论,不再占一行
   // 答案区:结论直接渲染给用户(不折叠——用户要求"最后告诉我答案")
   const result = document.createElement("div");
   result.className = "sub-result-title";
