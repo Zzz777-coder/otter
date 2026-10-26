@@ -316,6 +316,38 @@ check("收口后 runFiles 清空(下轮重攒)", true);  // 行为断言见下:�
 otterUI2.onDone({ summary: "空", final_text: "" });
 check("无新文件时不再出文件卡",
       threadEl.children.filter((c) => c._cl.has("fc-card")).length === 1);
+
+// 8g. 子代理三段式卡片(2026-10-25 用户点名形态):派出横幅带任务原文 →
+//     处理中步骤行按 via+run_id 归组进卡 → 完成后结论(答案)直接渲染;
+//     无 STARTED 的散件 via 事件退回旧过程行路径(8a 段已覆盖,兼容回放)
+otterUI2.onEvent({ type: "SUBAGENT_STARTED", via: "explore", run_id: 11,
+                   task: "找到所有处理审批的函数", max_steps: 12 });
+const scard = threadEl.children.find((c) => c._cl.has("sub-card"));
+check("SUBAGENT_STARTED 建卡:横幅含角色与 Run 号", scard !== undefined
+      && textOf(scard.querySelector(".sub-head")).includes("派出探索 agent")
+      && textOf(scard.querySelector(".sub-head")).includes("Run #11"));
+check("任务原文上卡(派出即可见去干什么)",
+      scard !== undefined && textOf(scard.querySelector(".sub-task")).includes("找到所有处理审批的函数"));
+const beforeSubProc = plogMetas();
+otterUI2.onEvent({ type: "TOOL_STARTED", step: 1, name: "read_file",
+                   arguments: { path: "a.py" }, via: "explore", run_id: 11 });
+check("处理中步骤进卡片(不混主过程块)", scard !== undefined
+      && scard.querySelector(".sub-proc").children.length === 1
+      && plogMetas() === beforeSubProc);
+check("处理中标题实时计数", scard !== undefined
+      && scard.querySelector(".sub-proc-title").textContent.includes("1 项"));
+otterUI2.onEvent({ type: "TOOL_COMPLETED", step: 1, name: "read_file",
+                   via: "explore", run_id: 11 });
+check("完成步骤行打勾", scard !== undefined
+      && scard.querySelector(".sub-step")._cl.has("ok"));
+otterUI2.onEvent({ type: "SUBAGENT_COMPLETED", via: "explore", run_id: 11, ok: true,
+                   steps: 3, tool_calls: 1, duration: 2.5, result: "找到 3 处相关实现" });
+check("完成状态行(步数/工具数/耗时)", scard !== undefined
+      && textOf(scard.querySelector(".sub-status")).includes("完成")
+      && textOf(scard.querySelector(".sub-status")).includes("3 步"));
+check("结论(答案)直接上卡", scard !== undefined
+      && (scard.querySelector(".sub-result").innerHTML || "").includes("找到 3 处"));
+check("状态栏提示结论已带回", (statusEl.textContent || "").includes("结论已带回"));
 // 单击行=右侧预览(showPreview 内 await preview_file,断言进 microtask)
 (async () => {
   const fcRow = fcCard && fcCard.querySelector(".fc-row");

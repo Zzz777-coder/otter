@@ -35,7 +35,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # 2026-09-23 深夜教训:WKWebView 对 file:// 的 **index.html 本体**也缓存——子资源的
 # ?v= 再怎么 bump,入口页不变就整套旧资源照常服务(用户看到"界面没变")。修法:
 # 窗口 URL 自带构建戳,每次改 web/ 时与 index.html 内 ?v= 一起同步 bump 这里。
-WEB_BUILD = "20261015a"  # 20261015a:助手气泡尾部显示本轮 token 用量(index.html ?v= 同步)
+WEB_BUILD = "20261023a"  # 20261023a:正文内联文件路径可点击打开(index.html ?v= 同步)
 
 
 class DiffGateSession:
@@ -258,6 +258,11 @@ class OtterWebGui:
                 _orch.set_gates(preview_gate=diff_preview_gate,
                                 approval_gate=build_gate(window=self.window),
                                 event_sink=on_event)
+            # 2026-10-25 explore 可视化补强:此前只有 dispatch/orchestrate 注入,
+            # explore 内部事件只落库不上报——主界面最长 300 秒黑盒,现在同款注入
+            _exp = registry.get("explore")
+            if _exp is not None:
+                _exp.set_gates(event_sink=on_event)
             if self.memory_bundle is None:
                 self.memory_bundle = memory_bundle
             # 2026-09-24 运行中取消:保留 AgentLoop 实例引用 + 每 Run 新建 cancel event
@@ -907,11 +912,12 @@ def _runs_rows(gui: "OtterWebGui", db_path: Path | None = None) -> list[dict]:
         return []
     try:
         runs = db.execute(
-            "SELECT id, status, stop_reason, started_at, finished_at FROM runs ORDER BY id"
+            "SELECT id, status, stop_reason, started_at, finished_at, parent_run_id "
+            "FROM runs ORDER BY id"
         ).fetchall()
         titles = dict(db.execute("SELECT id, title FROM conversations").fetchall())
         groups: dict = {}   # key=会话id 或 ("run", rid) → 聚合
-        for rid, status, stop, started, finished in runs:
+        for rid, status, stop, started, finished, parent_rid in runs:
             msg = db.execute(
                 "SELECT conversation_id, content FROM messages "
                 "WHERE run_id=? AND role='user' ORDER BY sequence LIMIT 1", (rid,)
@@ -933,6 +939,10 @@ def _runs_rows(gui: "OtterWebGui", db_path: Path | None = None) -> list[dict]:
             g["count"] += 1
             if not g["first_user"]:
                 g["first_user"] = " ".join(((msg[1] if msg else "") or "").split())[:80]
+            # 2026-10-25 子代理归属:本 run 自身是子代理 run 时记父归属
+            # (parent_run_id 已落库但此前从未展示;🦦 前缀行让用户一眼确认派过子代理)
+            if parent_rid is not None:
+                g["sub_of"] = parent_rid
             ts = finished or started
             if ts > g["last_ts"]:
                 g["last_ts"], g["last_mode"] = ts, mode
@@ -952,6 +962,11 @@ def _runs_rows(gui: "OtterWebGui", db_path: Path | None = None) -> list[dict]:
             cid = key if not isinstance(key, tuple) else None
             summary = (titles.get(cid) or g["first_user"] or
                        (f"Run #{key[1]}" if isinstance(key, tuple) else f"会话 #{cid}"))
+            # 2026-10-25 子代理 run 单独行加 🦦 前缀与父归属,用户可一眼确认
+            # "当时确实派了子代理"(parent_rid 记在组内首个 run 上)
+            sub_of = g.get("sub_of")
+            if sub_of is not None:
+                summary = f"🦦 子代理(属 Run #{sub_of})· {summary}"
             out.append({
                 "id": cid if cid is not None else key[1],
                 "conv": cid,
@@ -1001,6 +1016,24 @@ def _run_detail(gui: "OtterWebGui", run_id: int, db_path: Path | None = None) ->
                 lines.append(f"{hhmmss}  ✘ {p.get('error', '')}")
             elif type_ == "RUN_FINALIZING":
                 lines.append(f"{hhmmss}  ! 收尾专用步(零工具)")
+            # 2026-10-25 子代理边界事件:Trace 里直接呈现派出/收回与结论摘要
+            # (父事件流已由 _announce 落库;子 run 也在 runs 表挂了 parent_run_id)
+            elif type_ == "SUBAGENT_STARTED":
+                via = p.get("via", "?")
+                lines.append(f"{hhmmss}  🦦 派出子代理 {via}(Run #{p.get('run_id', '?')}):"
+                             f" {str(p.get('task', ''))[:80]}")
+            elif type_ == "SUBAGENT_COMPLETED":
+                via = p.get("via", "?")
+                lines.append(f"{hhmmss}  🦦 子代理 {via} 完成 · {p.get('steps', '?')} 步 · "
+                             f"{p.get('duration', '?')}s · 结论:{str(p.get('result', ''))[:80]}")
+        # 2026-10-25 派出清单:该 run 名下的全部子 run(含 orchestrate 各角色),
+        # 用户点开 Trace 即可核实"确实派了子代理"
+        subs = db.execute(
+            "SELECT id, status FROM runs WHERE parent_run_id=? ORDER BY id", (run_id,)
+        ).fetchall()
+        if subs:
+            lines += ["", "── 派出子代理 ──"] + [
+                f"Run #{sid} · {status}" for sid, status in subs]
         lines += ["", f"tokens: {tokens_in} in / {tokens_out} out",
                   "工具统计: " + (" · ".join(f"{k}×{v}" for k, v in tools.items()) or "无")]
         # v0.3(2026-09-24):Trace 分账——主模型/压缩/反思各行其责

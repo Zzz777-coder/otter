@@ -155,6 +155,45 @@ body {
 .proc-log-body { display: none; padding: 2px 12px 8px; }
 .proc-log.open .proc-log-body { display: block; }
 
+/* 2026-10-25 子代理三段式卡片:派出横幅+任务原文 / 处理中步骤行 / 结论区 */
+.sub-card {
+  max-width: 650px; margin: 8px 0 4px;
+  background: #f7fafc; border: 1px solid #d5e0ee; border-radius: 9px;
+  overflow: hidden;
+}
+.sub-card.failed { border-color: #e8b4b4; background: #fdf7f7; }
+.sub-head {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--text); background: #eef3fa;
+}
+.sub-title { font-weight: 600; }
+.sub-status { margin-left: auto; color: var(--muted); }
+.sub-status.run { color: var(--accent); }
+.sub-status.done { color: #2e7d32; }
+.sub-task {
+  padding: 7px 12px 2px; font-size: 12.5px; line-height: 1.55; color: var(--text);
+  font-weight: 600;
+}
+.sub-proc-title {
+  padding: 8px 12px 0; font-size: 11px; font-weight: 600; color: var(--muted);
+}
+.sub-proc { padding: 2px 12px 8px; }
+.sub-step {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
+  color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sub-step.ok { color: #2e7d32; }
+.sub-step.ok::before { content: "✓ "; }
+.sub-result-title {
+  padding: 8px 12px 0; font-size: 11px; font-weight: 600; color: var(--muted);
+}
+.sub-result {
+  padding: 4px 14px 10px; font-size: 12.5px; line-height: 1.6; color: var(--text);
+  max-height: 320px; overflow: auto;
+  border-top: 1px dashed #e0e6f0; margin-top: 6px;
+}
+
 /* 2026-09-29 压缩摘要卡(用户要求仿 codex):默认一行收起,点击展开分组 bullet */
 .compact-card {
   max-width: 650px; margin: 8px 0 4px;

@@ -31,9 +31,11 @@ def _render_event(type_: str, payload: dict) -> None:
         if len(args_preview) > 160:
             args_preview = args_preview[:160] + "…"
         mode = " [magenta](PLAN)[/]" if payload.get("mode") == MODE_PLAN else ""
-        console.print(f"\n[dim]⚡ step{payload.get('step')}{mode} [/][bold yellow]{payload.get('name')}[/][dim] {args_preview}[/]")
+        via = f"[blue]🦦{payload.get('via')}[/] " if payload.get("via") else ""  # 2026-10-25 子代理来源标记
+        console.print(f"\n[dim]⚡ step{payload.get('step')}{mode} [/]{via}[bold yellow]{payload.get('name')}[/][dim] {args_preview}[/]")
     elif type_ == "TOOL_COMPLETED":
-        console.print(f"[dim]   ↳ 结果 {payload.get('result_chars', 0)} 字符[/]")
+        via = f"[blue]🦦{payload.get('via')}[/] " if payload.get("via") else ""
+        console.print(f"[dim]   ↳ {via}结果 {payload.get('result_chars', 0)} 字符[/]")
     elif type_ == "MODEL_STARTED":
         console.print(f"[dim]—— step {payload.get('step')} 思考中 ——[/]")
     elif type_ == "RUN_FINALIZING":
@@ -73,6 +75,13 @@ def _render_event(type_: str, payload: dict) -> None:
         console.print(
             f"[bold blue]⇩ 上下文已压缩(第 {payload.get('compressions')} 次,已覆盖 {payload.get('covered')} 条历史进摘要)[/]"
         )
+    elif type_ == "SUBAGENT_STARTED":
+        # 2026-10-25 子代理边界事件:终端同款可见"派了谁去干什么"
+        console.print(f"\n[bold blue]🦦 派出子代理 {payload.get('via')}(Run #{payload.get('run_id')}):{str(payload.get('task', ''))[:80]}[/]")
+    elif type_ == "SUBAGENT_COMPLETED":
+        # 2026-10-25 结论摘要带回终端(完整结论仍由主 agent 汇总后输出)
+        console.print(f"[bold blue]🦦 子代理 {payload.get('via')} 完成 · {payload.get('steps')} 步 · "
+                      f"{payload.get('duration')}s · 结论:{str(payload.get('result', ''))[:120]}[/]")
 
 
 class StreamJsonEmitter:
@@ -131,6 +140,13 @@ async def _dispatch(loop: AgentLoop, store, history: list[Message], state: Summa
             _render_event(type_, payload)
         else:
             emitter.event(type_, payload)
+
+    # 2026-10-25 CLI 子代理可视化:三个子代理工具注入事件转发(此前只有 GUI 注入,
+    # CLI 端子代理全程静默);审批门不注入——CLI 信任 git+/undo,与主循环同口径
+    for _name in ("explore", "dispatch", "orchestrate"):
+        _t = loop.registry.get(_name) if hasattr(loop, "registry") else None
+        if _t is not None and hasattr(_t, "set_gates"):
+            _t.set_gates(event_sink=on_event)
 
     try:
         result = await loop.run(

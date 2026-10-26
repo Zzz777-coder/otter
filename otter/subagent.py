@@ -22,6 +22,22 @@ from otter.prompts import SUBAGENT_SYSTEM, SUBAGENT_WRITABLE_SYSTEM  # 2026-09-2
 from otter.tools.base import Tool
 
 
+async def _announce(sink, store, parent_run_id: int | None, type_: str, payload: dict) -> None:
+    """子代理边界事件双通道(2026-10-25 可观测性补强):
+    ①落库到**父 Run** 的事件流(历史页/回放可见"何时派了子代理");
+    ②实时推 sink(GUI=主界面事件通道,失败静默——可视化不阻断子代理本身)。"""
+    if parent_run_id is not None:
+        try:
+            await store.append_event(parent_run_id, type_, payload)
+        except Exception:
+            pass
+    if sink is not None:
+        try:
+            await sink(type_, payload)
+        except Exception:
+            pass
+
+
 class SubagentTool(Tool):
     """spawn 子代理并行探索:主循环一个工具调用=一个隔离子任务。"""
 
@@ -42,6 +58,12 @@ class SubagentTool(Tool):
         self._adapter = adapter
         self._registry = registry  # 只读子集在 run 里按 PLAN 白名单过滤
         self._store = store
+        self._event_sink = None  # 2026-10-25 explore 过程可视化:此前只落库不上报,主界面全程黑盒
+
+    def set_gates(self, preview_gate=None, approval_gate=None, event_sink=None) -> None:
+        """装配期注入(2026-10-25):签名与 dispatch 对齐只为装配层统一调用;
+        explore 只读无审批门,实际只接收 event_sink。"""
+        self._event_sink = event_sink
 
     async def run(self, args) -> str:
         task = str(args.get("task", "")).strip()
@@ -60,11 +82,25 @@ class SubagentTool(Tool):
                     sub_registry.register(tool)
 
         events: list[str] = []
+        sink = self._event_sink
+        # 2026-10-25 父 Run 挂接:explore 此前不挂归属,历史页只见孤立 Run——
+        # 现与 dispatch 同款挂父,边界事件也落父事件流
+        parent_rid = _parent_run_id(self._registry)
 
         async def on_event(type_: str, payload: dict) -> None:
             events.append(type_)
+            # 2026-10-25 过程可视化:与 dispatch 同款——关键动作实时上报主界面
+            # (via+run_id 供前端归组到子代理卡片),节拍事件不上报防刷屏
+            if sink is not None and type_ not in ("MODEL_STARTED", "MODEL_COMPLETED"):
+                try:
+                    await sink(type_, {**payload, "via": "explore", "run_id": run_id})
+                except Exception:
+                    pass
 
-        run_id = await self._store.new_run()
+        run_id = await self._store.new_run(parent_run_id=parent_rid)
+        started = asyncio.get_running_loop().time()
+        await _announce(sink, self._store, parent_rid, "SUBAGENT_STARTED",
+                        {"via": "explore", "run_id": run_id, "task": task[:200], "max_steps": 12})
         loop = AgentLoop(
             self._adapter, sub_registry, self._store,
             on_event=on_event,
@@ -80,6 +116,14 @@ class SubagentTool(Tool):
         )
         await self._store.finish_run(run_id, "completed" if result.ok else "failed",
                                      f"subagent:{result.stop_reason}")
+        # 2026-10-25 边界事件:结束时把步数/耗时/结论摘要带回主界面(用户可直接看到答案)
+        await _announce(sink, self._store, parent_rid, "SUBAGENT_COMPLETED", {
+            "via": "explore", "run_id": run_id, "ok": bool(result.ok),
+            "steps": result.steps,
+            "tool_calls": len([e for e in events if e == "TOOL_COMPLETED"]),
+            "duration": round(asyncio.get_running_loop().time() - started, 1),
+            "result": (result.final_text or "(无结论)")[:1200],
+        })
         header = f"[子代理结论 · {result.steps} 步 · {len([e for e in events if e == 'TOOL_COMPLETED'])} 次工具调用]\n"
         return header + (result.final_text or "(无结论)")[:4000]
 
@@ -236,21 +280,28 @@ class WritableSubagentTool(Tool):
         sub_registry = self._build_registry(level, paths)
         events: list[str] = []
         sink = self._event_sink
+        # 2026-10-25 父 Run 挂接:历史页可见子代理 run 归属(拿不到上下文=不挂)
+        parent_rid = _parent_run_id(self._registry)
 
         async def on_event(type_: str, payload: dict) -> None:
             events.append(type_)
             # 2026-09-29 过程可视化:子代理事件实时上报主界面(与主代理同一
             # 事件通道,via 标记来源;上报失败静默——可视化不阻断子代理本身)。
             # 节拍事件(MODEL_STARTED/COMPLETED)不上报——子代理步数多,
-            # 逐拍转发会在主界面刷大量分隔行,只报关键动作
+            # 逐拍转发会在主界面刷大量分隔行,只报关键动作。
+            # 2026-10-25 payload 增带 run_id:前端按 via+run_id 归组到子代理卡片
             if sink is not None and type_ not in ("MODEL_STARTED", "MODEL_COMPLETED"):
                 try:
-                    await sink(type_, {**payload, "via": "subagent"})
+                    await sink(type_, {**payload, "via": "subagent", "run_id": run_id})
                 except Exception:
                     pass
 
-        # 2026-09-29 父 Run 挂接:历史页可见子代理 run 归属(拿不到上下文=不挂)
-        run_id = await self._store.new_run(parent_run_id=_parent_run_id(self._registry))
+        run_id = await self._store.new_run(parent_run_id=parent_rid)
+        started = asyncio.get_running_loop().time()
+        # 2026-10-25 边界事件:派出即上报(用户在主界面直接看到"派了子代理去干什么")
+        await _announce(sink, self._store, parent_rid, "SUBAGENT_STARTED",
+                        {"via": "subagent", "run_id": run_id, "task": task[:200],
+                         "write": level, "max_steps": 15})
         loop = AgentLoop(
             self._adapter, sub_registry, self._store,
             on_event=on_event,
@@ -271,6 +322,14 @@ class WritableSubagentTool(Tool):
         )
         await self._store.finish_run(run_id, "completed" if result.ok else "failed",
                                      f"subagent:dispatch:{result.stop_reason}")
+        # 2026-10-25 边界事件:步数/耗时/结论摘要带回主界面(与 explore 同款)
+        await _announce(sink, self._store, parent_rid, "SUBAGENT_COMPLETED", {
+            "via": "subagent", "run_id": run_id, "ok": bool(result.ok),
+            "steps": result.steps,
+            "tool_calls": len([e for e in events if e == "TOOL_COMPLETED"]),
+            "duration": round(asyncio.get_running_loop().time() - started, 1),
+            "result": (result.final_text or "(无结论)")[:1200],
+        })
         writes = len([e for e in events if e == "DIFF_PREVIEW"])
         header = (f"[子代理结论 · 权限={level} · {result.steps} 步 · "
                   f"{len([e for e in events if e == 'TOOL_COMPLETED'])} 次工具调用 · "

@@ -18,7 +18,7 @@ import json
 from otter.loop import AgentLoop
 from otter.models.types import Message
 from otter.prompts import SUBAGENT_WRITABLE_SYSTEM
-from otter.subagent import _parent_run_id
+from otter.subagent import _announce, _parent_run_id
 from otter.tools.base import Tool
 
 # ── 角色模板(2026-09-29):planner/worker/reviewer 三件套 ─────────────
@@ -85,16 +85,18 @@ class Orchestrator:
         self._max_steps = max_steps
         self._event_sink = event_sink  # 2026-09-29 各角色事件实时上报主界面(via 标记)
 
-    def _make_on_event(self, role: str, sink_box: list):
+    def _make_on_event(self, role: str, sink_box: list, rid_box: list | None = None):
         """角色事件回调:计数(进 sink_box)+ 实时上报(带 via=角色标记,失败静默)。
         节拍事件(MODEL_STARTED/COMPLETED)不上报——多 worker 逐拍转发会刷屏,
-        只报关键动作(工具/审批/产物)。"""
+        只报关键动作(工具/审批/产物)。rid_box:run_id 延迟填充盒(new_run 后才有),
+        2026-10-25 转发 payload 带上 run_id 供前端归组到子代理卡片。"""
 
         async def on_event(type_: str, payload: dict) -> None:
             sink_box.append(type_)
             if self._event_sink is not None and type_ not in ("MODEL_STARTED", "MODEL_COMPLETED"):
+                rid = rid_box[0] if rid_box else None
                 try:
-                    await self._event_sink(type_, {**payload, "via": role})
+                    await self._event_sink(type_, {**payload, "via": role, "run_id": rid})
                 except Exception:
                     pass
 
@@ -123,19 +125,36 @@ class Orchestrator:
                         parent_run_id: int | None = None) -> tuple[str, bool]:
         """跑一个角色(独立 AgentLoop/独立上下文),返回 (最终文本, 是否正常收尾)。"""
         events: list[str] = []
+        rid_box = [None]  # 2026-10-25 run_id 延迟填充盒:事件回调闭包读取(new_run 后回填)
         loop = AgentLoop(self._adapter, registry, self._store,
-                         on_event=self._make_on_event(role, events) if role else None,
+                         on_event=self._make_on_event(role, events, rid_box) if role else None,
                          base_system=system,
                          preview_gate=self._preview_gate,
                          approval_gate=self._approval_gate)
         # 2026-09-29 父 Run 挂接:编排内每个角色的 run 都记归属(历史页可见)
         run_id = await self._store.new_run(parent_run_id=parent_run_id)
+        rid_box[0] = run_id
+        # 2026-10-25 角色边界事件:planner/worker/reviewer 启停对主界面可见
+        # (与 explore/dispatch 同款双通道:落父事件流 + 实时 sink)
+        started = asyncio.get_running_loop().time()
+        if role:
+            await _announce(self._event_sink, self._store, parent_run_id, "SUBAGENT_STARTED",
+                            {"via": role, "run_id": run_id, "task": prompt[:200],
+                             "max_steps": max_steps})
         result = await asyncio.wait_for(
             loop.run([], Message(role="user", content=prompt), run_id=run_id,
                      max_steps=max_steps, mode=mode, on_text_delta=None),
             timeout=420.0)
         await self._store.finish_run(run_id, "completed" if result.ok else "failed",
                                      f"orchestra:{role}:{result.stop_reason}")
+        if role:
+            await _announce(self._event_sink, self._store, parent_run_id, "SUBAGENT_COMPLETED", {
+                "via": role, "run_id": run_id, "ok": bool(result.ok),
+                "steps": result.steps,
+                "tool_calls": len([e for e in events if e == "TOOL_COMPLETED"]),
+                "duration": round(asyncio.get_running_loop().time() - started, 1),
+                "result": (result.final_text or "")[:1200],
+            })
         # ok=False:loop 把模型/工具异常消化为 failed 终态(步数耗尽等同理),
         # 需向上透传给 worker 汇总(执行级成败),语义成败仍由 reviewer 裁定
         return (result.final_text or "").strip(), bool(result and result.ok)

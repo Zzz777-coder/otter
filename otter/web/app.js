@@ -127,11 +127,23 @@ window.otterUI = {
     // 2026-09-29 用户要求"一次回复一个头像":MODEL_STARTED 不再收口开新块——
     // 工具轮只是换一段(currentChunk 置空,下段正文续进同一头像块)
     if (type === "MODEL_STARTED") { rawBuf = ""; currentChunk = null; ensureThinking(); meta("system", `${p.via ? "🦦" + p.via + " · " : ""}step ${p.step}${p.mode === "plan" ? " · PLAN" : ""}`); }
+    // 2026-10-25 子代理三段式卡片(用户要求):派出横幅(任务原文)→ 下方实时
+    // "处理中"步骤列表 → 完成后直接给出结论;过程事件按 via+run_id 归组进卡
+    else if (type === "SUBAGENT_STARTED") { subCardOpen(p); }
+    else if (type === "SUBAGENT_COMPLETED") { subCardClose(p); }
     else if (type === "TOOL_STARTED") {
-      const args = JSON.stringify(p.arguments || {});
-      meta("tool", `${p.via ? "🦦" + p.via + " · " : ""}⚡ ${p.name} ${args.length > 130 ? args.slice(0, 130) + "…" : args}`);
+      const sub = subCardOf(p);
+      if (sub) { subCardStep(sub, p); }
+      else {
+        const args = JSON.stringify(p.arguments || {});
+        meta("tool", `${p.via ? "🦦" + p.via + " · " : ""}⚡ ${p.name} ${args.length > 130 ? args.slice(0, 130) + "…" : args}`);
+      }
     }
-    else if (type === "TOOL_COMPLETED") { $("#statusbar").textContent = `工具 ${p.name} 完成`; }
+    else if (type === "TOOL_COMPLETED") {
+      const sub = subCardOf(p);
+      if (sub) { subCardStepDone(sub, p); $("#statusbar").textContent = `🦦 子代理 ${subViaName(p.via)}:工具 ${p.name} 完成`; }
+      else { $("#statusbar").textContent = `工具 ${p.name} 完成`; }
+    }
     else if (type === "RUN_FINALIZING") { meta("system", "! 达到最大步数,收尾总结中"); }
     // 修正(2026-09-23):DIFF_PREVIEW 不在事件路径建卡——gate(onDiffPreview)路径会建,
     // 双路径导致重复卡片/竞态;此处仅留提示,卡片由 gate 统一创建
@@ -226,6 +238,7 @@ window.otterUI = {
     thread.innerHTML = "";
     currentAssistant = null;
     procLog = null;  // 2026-09-29 终版:回放重建唯一一条过程线(不再按正文分段)
+    subCards.clear();  // 2026-10-25 子代理卡片随清屏重置(旧卡 DOM 已随 thread 清掉)
     barClear();  // 2026-09-29 产物胶囊随清屏重置(数据由 onHistoryFiles 重灌)
     // 修复(2026-09-23 #43):清空 thread 后必须复位 thinkingEl——否则它指向已分离
     // 节点,后续 ensureThinking 不重建、insertBefore 抛 NotFoundError(事件整批丢失)
@@ -742,6 +755,93 @@ async function toggleFilePreview(p, anchor) {
   scrollBottom();
 }
 
+// ── 2026-10-25 子代理三段式卡片(用户点名形态)──
+// 派出即建卡:横幅「🦦 派出探索 agent」+ 任务原文;执行期下方实时追加
+// 「处理中」步骤行(每条工具调用);完成时状态行收口 + 直接渲染结论(答案)。
+// 归组 key=via+run_id:orchestrate 的 planner/workerN/reviewer 各自成卡。
+const subCards = new Map();
+function subCardKey(p) { return `${p.via || "?"}#${p.run_id != null ? p.run_id : "?"}`; }
+function subCardOf(p) {
+  if (!p || !p.via) return null;
+  return subCards.get(subCardKey(p)) || null;
+}
+function subViaName(via) {
+  // 角色名中文化(worker2 → 执行代理 2;未知角色原样透出)
+  if (via === "explore") return "探索 agent";
+  if (via === "subagent") return "可写子代理";
+  if (via === "planner") return "规划器";
+  if (via === "reviewer") return "评审员";
+  const m = /^worker(\d+)$/.exec(via || "");
+  if (m) return `执行代理 ${m[1]}`;
+  return via || "子代理";
+}
+function subCardOpen(p) {
+  const card = document.createElement("div");
+  card.className = "sub-card";
+  const head = document.createElement("div");
+  head.className = "sub-head";
+  const title = document.createElement("span");
+  title.className = "sub-title";
+  const tag = p.write && p.write !== "none" ? ` · 权限 ${p.write}` : "";
+  title.textContent = `🦦 派出${subViaName(p.via)} · Run #${p.run_id != null ? p.run_id : "?"}${tag}`;
+  const status = document.createElement("span");
+  status.className = "sub-status run";
+  status.textContent = "运行中…";
+  head.append(title, status);
+  const task = document.createElement("div");
+  task.className = "sub-task";
+  task.textContent = p.task || "";  // textContent 直写:任务文本不进 innerHTML,防注入
+  const procTitle = document.createElement("div");
+  procTitle.className = "sub-proc-title";
+  procTitle.textContent = "处理中";
+  const proc = document.createElement("div");
+  proc.className = "sub-proc";
+  card._steps = 0;
+  card._status = status;
+  card._procTitle = procTitle;
+  card.append(head, task, procTitle, proc);
+  mountAboveThinking(card);
+  subCards.set(subCardKey(p), card);
+  $("#statusbar").textContent = `🦦 ${subViaName(p.via)} 已派出,处理中…`;
+  scrollBottom();
+}
+function subCardStep(card, p) {
+  // 处理中步骤行:每条工具调用实时上屏(默认展开,答案出来后随卡收口)
+  const proc = card.querySelector(".sub-proc");
+  const row = document.createElement("div");
+  row.className = "sub-step";
+  const args = JSON.stringify(p.arguments || {});
+  row.textContent = `⚡ ${p.name} ${args.length > 110 ? args.slice(0, 110) + "…" : args}`;
+  proc.appendChild(row);
+  card._steps += 1;
+  card._procTitle.textContent = `处理中 · ${card._steps} 项`;
+  card._lastRow = row;  // 最近一行:TOOL_COMPLETED 打勾回写目标
+  card._status.textContent = `运行中 · 最近 ${p.name}`;
+  scrollBottom();
+}
+function subCardStepDone(card, p) {
+  if (card._lastRow) card._lastRow.classList.add("ok");  // 最近步骤行打勾
+}
+function subCardClose(p) {
+  const card = subCardOf(p);
+  if (!card) { meta("ok", `🦦 子代理完成:${subViaName(p.via)} · ${p.steps || "?"} 步`); return; }
+  card._status.textContent = `✔ 完成 · ${p.steps || "?"} 步 · ${p.tool_calls || 0} 次工具 · ${p.duration || "?"}s`;
+  card._status.classList.remove("run");
+  card._status.classList.add("done");
+  card._procTitle.textContent = `处理过 ${card._steps} 项事宜`;
+  // 答案区:结论直接渲染给用户(不折叠——用户要求"最后告诉我答案")
+  const result = document.createElement("div");
+  result.className = "sub-result-title";
+  result.textContent = "结论";
+  const body = document.createElement("div");
+  body.className = "sub-result";
+  renderMarkdown(body, p.result || "(无结论)");
+  card.append(result, body);
+  if (!p.ok) card.classList.add("failed");
+  $("#statusbar").textContent = `🦦 ${subViaName(p.via)} 完成,结论已带回`;
+  scrollBottom();
+}
+
 // ── 2026-09-29 压缩摘要卡(用户要求仿 codex「History from previous session」)──
 // 压缩发生时把结构化摘要(当前目标/用户约束/关键决策/已完成/待办/重要事实)
 // 做成可展开卡片:默认一行「上下文已压缩」,点击展开分组 bullet(真机反馈:
@@ -1042,6 +1142,8 @@ $("#newConv").addEventListener("click", async () => {
   await window.pywebview.api.new_conversation();
   thread.innerHTML = "";
   currentAssistant = null;
+  procLog = null;  // 2026-10-25 同 onHistory:清屏同步断过程线与子代理卡片
+  subCards.clear();
   barClear();  // 2026-09-29 产物胶囊:新会话不残留旧会话文件
   hideThinkingKeepTimer();  // 修复(2026-09-23 #43):同 onHistory,清屏必须复位 thinkingEl
   $("#statusbar").textContent = "新会话(发送第一条消息时创建)";

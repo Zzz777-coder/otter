@@ -134,7 +134,8 @@ def test_subagent_tool_plan_mode_readonly(tmp_path: Path, monkeypatch):
             return ModelResponse(content="结论:找到了 X", usage=ModelUsage(100, 20))
 
     class MemStore:
-        async def new_run(self): return 9
+        # 2026-10-25 签名对齐:explore 现与 dispatch 同款挂父 Run(parent_run_id 可空)
+        async def new_run(self, parent_run_id=None): return 9
         async def finish_run(self, *a): pass
         async def append_message(self, *a): pass
         async def save_checkpoint(self, *a, **k): pass
