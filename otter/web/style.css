@@ -385,7 +385,11 @@ body {
 
 /* ── 长期记忆页(2026-09-24 新增):整屏行分布,观感与历史页同族 ── */
 /* 显示切换走全局 .page/.page.active(64-65 行);此处只定列布局 */
-#page-memory, #page-artifacts { flex-direction: column; min-height: 0; }
+/* 2026-10-26 真机二次暴露(根因终于找到):技能页漏加进本选择器——.page.active
+   只有 display:flex 无方向(默认 row),标题行被压成窄条贴最左边缘(用户看到
+   "技能两个字在最左边");上一轮只补了容器滚动规则没查到页面级方向。新页面
+   接入清单:DOM 结构/容器 flex/本条列方向,三样都要抄齐 */
+#page-memory, #page-artifacts, #page-skills { flex-direction: column; min-height: 0; }
 #memSearch, #artSearch { flex: none; margin: 8px 0 4px; padding: 7px 12px; border: 1px solid var(--border);
   border-radius: 8px; background: var(--bg-input); font-size: 12px; color: var(--text); outline: none; }
 #memSearch:focus, #artSearch:focus { border-color: var(--accent); }
