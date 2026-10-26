@@ -29,6 +29,10 @@
     <button class="rail-item" data-page="artifacts" title="交付物">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
     </button>
+    <!-- 2026-10-26 技能页:已转正技能+挖掘候选两区只读查看,点击展开正文 -->
+    <button class="rail-item" data-page="skills" title="技能">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    </button>
     <button class="rail-item" data-page="settings" title="设置">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
     </button>
@@ -117,6 +121,23 @@
     <div id="artList"></div>
   </div>
 
+  <!-- 技能页(2026-10-26 新增):.otter/skills 快照,转正/候选两区,
+       点击展开 SKILL.md 正文;候选只读展示(确认转正走 CLI /skill accept) -->
+  <div class="page" id="page-skills">
+    <div class="runs-head">
+      <div class="panel-title">技能</div>
+      <span class="ws-tag" id="wsTagSkills" title="当前查看的工作区(在历史记录页切换)"></span>
+      <button id="reloadSkills" title="刷新">↻</button>
+    </div>
+    <input id="skillSearch" type="text" placeholder="搜索" autocomplete="off" />
+    <div id="skillsScroll">
+      <div class="mem-sec">已转正 · 常驻注入 system</div>
+      <div id="skillList"></div>
+      <div class="mem-sec">候选 · 待确认(用 /skill accept 转正)</div>
+      <div id="skillCandList"></div>
+    </div>
+  </div>
+
   <!-- 设置页 -->
   <div class="page" id="page-settings">
     <pre id="settingsBox" class="panel"></pre>
@@ -124,6 +145,6 @@
 
   <footer id="statusbar">启动中…</footer>
   <script src="marked.min.js?v=1"></script>
-  <script src="app.js?v=20261026a"></script><!-- 20261026a:子代理卡片紧凑化+流式断段修复(上一版漏 bump 致 WKWebView 命中缓存跑旧前端,卡片整段未上屏——教训:改前端必同步 bump) -->
+  <script src="app.js?v=20261026b"></script><!-- 20261026b:新增技能查看页(两区只读+搜索+展开);缓存号规则见 otter-frontend-change 技能 -->
 </body>
 </html>

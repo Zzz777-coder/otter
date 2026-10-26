@@ -117,3 +117,37 @@ class _MemStore:
 
     async def append_event(self, run_id, type_, payload):
         pass
+
+
+def test_skills_payload_two_zones(tmp_path: Path, monkeypatch):
+    """2026-10-26 技能页快照:转正/候选两区、正文全量直带、坏文件跳过不阻断。"""
+    monkeypatch.chdir(tmp_path)
+    from otter.gui import _skills_payload
+
+    # 转正:标准 front matter + markdown 正文
+    sdir = tmp_path / ".otter" / "skills" / "demo-skill"
+    sdir.mkdir(parents=True)
+    (sdir / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: 演示技能\n"
+        "created_from: manual(测试)\ncreated: 2026-10-26\n---\n\n# demo\n\n1. 第一步\n",
+        encoding="utf-8")
+    # 坏文件:无 front matter,应跳过不炸
+    bad = tmp_path / ".otter" / "skills" / "bad"
+    bad.mkdir()
+    (bad / "SKILL.md").write_text("没有 front matter 的坏文件", encoding="utf-8")
+    # 候选:挖掘产物 json
+    cdir = tmp_path / ".otter" / "skills" / "candidates"
+    cdir.mkdir()
+    (cdir / "run9.json").write_text(
+        '{"run_id": 9, "name": "cand-x", "description": "候选描述", '
+        '"procedure": "步骤…", "created": "2026-10-26"}', encoding="utf-8")
+
+    payload = _skills_payload(root=tmp_path / ".otter" / "skills")
+    assert [s["name"] for s in payload["confirmed"]] == ["demo-skill"]  # 坏文件被跳过
+    s = payload["confirmed"][0]
+    assert s["description"] == "演示技能" and "第一步" in s["body"]  # 正文全量直带
+    assert payload["candidates"][0]["name"] == "cand-x"
+    assert payload["candidates"][0]["run_id"] == 9
+    # 空目录:不炸、两区空
+    empty = _skills_payload(root=tmp_path / "nowhere")
+    assert empty == {"confirmed": [], "candidates": []}

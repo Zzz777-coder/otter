@@ -80,7 +80,7 @@ const appSrc = fs.readFileSync(path.join(WEB, "app.js"), "utf-8");
 (0, eval)(markedSrc);
 // app.js 首行 "use strict":严格模式下 eval 的 function 声明不外泄——
 // 尾部追加显式导出(同作用域内赋值给 global)
-(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, splitFilePaths, linkifyFilePaths, loadRuns, renderMemory, renderArtifacts, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange, beginRename };");
+(0, eval)(appSrc + "\n;global.__exports = { renderMarkdown, enhanceCodeBlocks, splitFilePaths, linkifyFilePaths, loadRuns, renderMemory, renderArtifacts, renderSkills, railDot, loadWorkspaces, onWorkspaceChange, onChatWorkspaceChange, beginRename };");
 if (!global.__exports || typeof global.__exports.renderMarkdown !== "function") {
   console.error("renderMarkdown 导出失败");
   process.exit(1);
@@ -479,6 +479,35 @@ check("面板行含预览/打开按钮", artRows[0] && artRows[0].querySelectorA
   renderMemory({ core: [], entries: [] }, "");
   check("记忆页空数据显示空态", coreListEl.children.length === 1
     && coreListEl.children[0]._cl.has("conv-empty") && memListEl.children[0]._cl.has("conv-empty"));
+
+  // 10b) 技能页(2026-10-26 新增):renderSkills 两区渲染+搜索过滤+候选描边类
+  const skillListEl = new El("div"), skillCandEl = new El("div");
+  document.querySelector = (s) => (s === "#skillList" ? skillListEl
+    : s === "#skillCandList" ? skillCandEl : _qm(s));
+  const { renderSkills } = global.__exports;
+  renderSkills({
+    confirmed: [{ name: "otter-triage", description: "三步诊断法",
+                   created_from: "manual(事故蒸馏)", created: "2026-10-26",
+                   body: "# 三步诊断法\n\n1. 查事件库" }],
+    candidates: [{ run_id: 9, name: "cand-x", description: "候选描述",
+                   procedure: "步骤内容", created: "2026-10-26" }],
+  }, "");
+  check("技能页转正区条目(name/描述/来源/正文)", skillListEl.children.length === 1
+    && skillListEl.children[0].children[0].textContent === "otter-triage"
+    && skillListEl.children[0].children[1].textContent === "三步诊断法"
+    && skillListEl.children[0].children[2].textContent.includes("事故蒸馏"));
+  check("技能页正文进结构(markdown 渲染)", skillListEl.children[0].children.length === 4);
+  check("技能页候选区条目+run 标识+描边类", skillCandEl.children.length === 1
+    && skillCandEl.children[0].children[0].textContent === "cand-x"
+    && skillCandEl.children[0].children[2].textContent.includes("run9")
+    && skillCandEl.children[0]._cl.has("skill-cand"));
+  renderSkills({
+    confirmed: [{ name: "otter-triage", description: "三步诊断法",
+                   created_from: "", created: "", body: "内容" }],
+    candidates: [],
+  }, "triage");
+  check("技能页搜索过滤(命中转正,候选空态)", skillListEl.children.length === 1
+    && skillCandEl.children[0]._cl.has("conv-empty"));
   renderMemory({ core: [{ key: "偏好", value: "x", reason: "", source_quote: "", updated_at: "" }], entries: [] }, "不存在词");
   check("记忆页搜索无命中→空态", coreListEl.children[0]._cl.has("conv-empty"));
   renderMemory({ core: [{ key: "偏好", value: "x", reason: "", source_quote: "", updated_at: "" }],

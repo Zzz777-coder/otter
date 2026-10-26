@@ -1053,6 +1053,7 @@ document.querySelectorAll(".rail-item").forEach((btn) => {
     if (btn.dataset.page === "runs") loadRuns();
     if (btn.dataset.page === "memory") loadMemory();  // 2026-09-24 长期记忆页:切页即拉快照
     if (btn.dataset.page === "artifacts") loadArtifacts();  // 2026-09-24 交付物页:切页即拉索引
+    if (btn.dataset.page === "skills") loadSkills();  // 2026-10-26 技能页:切页即拉快照
     if (btn.dataset.page === "settings") loadSettings();
   });
 });
@@ -1286,6 +1287,7 @@ async function loadWorkspaces() {
   const tag = viewing && !viewing.current ? `查看:${viewing.name}` : "";
   $("#wsTagMemory").textContent = tag;
   $("#wsTagArt").textContent = tag;
+  $("#wsTagSkills").textContent = tag;  // 2026-10-26 技能页同款工作区标签
 }
 // 具名导出供 node 冒烟测试直调(与 loadRuns 同法,addEventListener 桩无法合成 change 事件)
 async function onWorkspaceChange() {
@@ -1451,6 +1453,73 @@ async function loadArtifacts() {
 }
 $("#artSearch").addEventListener("input", () => renderArtifacts(lastArtifacts || [], $("#artSearch").value));
 $("#reloadArtifacts").addEventListener("click", loadArtifacts);
+
+// ── 技能页(2026-10-26 新增):.otter/skills 快照,转正/候选两区 ──
+// 条目复用记忆页 mem-item 观感:标题+描述副行+来源/时间 meta,点击展开正文;
+// 候选只读(审批动作不进只读页,确认转正走 CLI /skill accept)
+let lastSkills = null;
+function renderSkills(sk, q = "") {
+  const ql = (q || "").toLowerCase();
+  const match = (...fields) =>
+    !ql || fields.some((f) => (f || "").toLowerCase().includes(ql));
+  const list = $("#skillList");
+  list.innerHTML = "";
+  let shown = 0;
+  for (const s of (sk && sk.confirmed) || []) {
+    if (!match(s.name, s.description, s.body)) continue;
+    shown++;
+    const item = document.createElement("div");
+    item.className = "mem-item";
+    const title = document.createElement("div");
+    title.className = "mem-title";
+    title.textContent = s.name;
+    const sub = document.createElement("div");
+    sub.className = "mem-sub";
+    sub.textContent = s.description || "";
+    const meta = document.createElement("div");
+    meta.className = "mem-meta";
+    meta.textContent = `${s.created_from || "人工提炼"} · ${s.created || ""}`;
+    const body = document.createElement("div");
+    body.className = "mem-body";
+    renderMarkdown(body, s.body || "");  // SKILL.md 正文是 markdown,渲染后展示
+    item.append(title, sub, meta, body);
+    item.onclick = () => item.classList.toggle("open");
+    list.appendChild(item);
+  }
+  if (!shown) _memEmpty(list, "暂无已转正技能");
+  const clist = $("#skillCandList");
+  clist.innerHTML = "";
+  let shownC = 0;
+  for (const c of (sk && sk.candidates) || []) {
+    if (!match(c.name, c.description, c.procedure)) continue;
+    shownC++;
+    const item = document.createElement("div");
+    item.className = "mem-item skill-cand";  // skill-cand 标候选描边(与转正区分)
+    const title = document.createElement("div");
+    title.className = "mem-title";
+    title.textContent = c.name;
+    const sub = document.createElement("div");
+    sub.className = "mem-sub";
+    sub.textContent = c.description || "";
+    const meta = document.createElement("div");
+    meta.className = "mem-meta";
+    meta.textContent = `候选 · run${c.run_id != null ? c.run_id : "?"} · ${c.created || ""}`;
+    const body = document.createElement("div");
+    body.className = "mem-body";
+    body.textContent = c.procedure || "";
+    item.append(title, sub, meta, body);
+    item.onclick = () => item.classList.toggle("open");
+    clist.appendChild(item);
+  }
+  if (!shownC) _memEmpty(clist, "暂无候选");
+}
+async function loadSkills() {
+  lastSkills = await window.pywebview.api.get_skills();
+  renderSkills(lastSkills, $("#skillSearch").value || "");
+}
+$("#skillSearch").addEventListener("input", () =>
+  renderSkills(lastSkills || { confirmed: [], candidates: [] }, $("#skillSearch").value));
+$("#reloadSkills").addEventListener("click", loadSkills);
 
 async function loadSettings() {
   $("#settingsBox").textContent = await window.pywebview.api.get_settings();

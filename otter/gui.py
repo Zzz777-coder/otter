@@ -597,6 +597,10 @@ class OtterWebGui:
                 2026-09-24 最近工作区:按查看根读取"""
                 return _artifacts_payload(root=gui.view_root / ".otter" / "artifacts")
 
+            def get_skills(self):
+                """2026-10-26 技能页:转正+候选两区快照,按查看根读取(与其他只读页同口径)"""
+                return _skills_payload(root=gui.view_root / ".otter" / "skills")
+
             def get_run_detail(self, run_id: int):
                 return _run_detail(gui, run_id,
                                    db_path=gui.view_root / ".otter" / "otter.db")
@@ -896,6 +900,51 @@ def _memory_payload(root: Path | None = None) -> dict:
                 "mtime": time.strftime("%m月%d日 %H:%M", time.localtime(p.stat().st_mtime)),
             })
     return {"root": str(root), "core": core, "entries": entries}
+
+
+def _skills_payload(root: Path | None = None) -> dict:
+    """技能页数据快照(2026-10-26 新增 GUI 页)。两区:
+    - confirmed:root/.otter/skills/*/SKILL.md(front matter 解析 + 正文全文,技能文件
+      本身 KB 级,整篇直带免二次拉取;坏文件跳过不阻断,与 _artifacts_payload 同容错)
+    - candidates:root/.otter/skills/candidates/*.json(挖掘出的候选,GUI 第一版只读
+      展示,确认转正仍走 CLI /skill accept——审批动作不进只读页)
+    刻意不经 skills._skills_root():其带 mkdir 写副作用,查看页不应触发写。
+    2026-10-26 最近工作区:root 参数=工作区 .otter/skills 根(默认当前工作区)。"""
+    import re as _re
+
+    base = root or (Path.cwd() / ".otter" / "skills")
+    confirmed: list[dict] = []
+    if base.is_dir():
+        for p in sorted(base.glob("*/SKILL.md")):
+            try:
+                text = p.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            m = _re.match(r"^---\n(.*?)\n---\n", text, _re.DOTALL)
+            if not m:
+                continue
+            meta = dict(_re.findall(r"^(\w+):\s*(.*)$", m.group(1), _re.M))
+            confirmed.append({
+                "name": meta.get("name", p.parent.name),
+                "description": meta.get("description", ""),
+                "created_from": meta.get("created_from", ""),
+                "created": meta.get("created", ""),
+                "body": text[m.end():].strip(),
+            })
+    candidates: list[dict] = []
+    cand_dir = base / "candidates"
+    if cand_dir.is_dir():
+        for p in sorted(cand_dir.glob("*.json")):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            candidates.append({
+                "run_id": data.get("run_id"), "name": data.get("name", ""),
+                "description": data.get("description", ""),
+                "procedure": data.get("procedure", ""), "created": data.get("created", ""),
+            })
+    return {"confirmed": confirmed, "candidates": candidates}
 
 
 def _artifacts_payload(limit: int = 50, root: Path | None = None) -> list[dict]:

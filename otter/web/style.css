@@ -155,6 +155,9 @@ body {
 .proc-log-body { display: none; padding: 2px 12px 8px; }
 .proc-log.open .proc-log-body { display: block; }
 
+/* 2026-10-26 技能页:候选条目虚线描边(与转正区视觉区分,提示未生效) */
+.mem-item.skill-cand { border: 1px dashed #d9b98a; background: #fdfaf3; }
+
 /* 2026-10-26 子代理卡片(参考 Claude Code 紧凑条改版,旧三段式弃用):
    head 单行(角色+Run+右侧计数)/ 任务单行截断 / 当前动作单行 / 结论区 */
 .sub-card {
