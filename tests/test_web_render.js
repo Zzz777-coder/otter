@@ -511,6 +511,18 @@ check("面板行含预览/打开按钮", artRows[0] && artRows[0].querySelectorA
   }, "triage");
   check("技能页搜索过滤(命中转正,候选空态)", skillListEl.children.length === 1
     && skillCandEl.children[0]._cl.has("conv-empty"));
+  // 2026-10-26 真机反馈回归:正文命中不算匹配(搜 front 时 release-flow 因正文
+  // 引用了 otter-frontend-change 而误显示)——过滤只匹配可见行(名称+描述)
+  renderSkills({
+    confirmed: [
+      { name: "otter-frontend-change", description: "前端流程", created_from: "", created: "", body: "…" },
+      { name: "otter-release-flow", description: "发布流程", created_from: "", created: "",
+        body: "详见 otter-frontend-change 技能" },
+    ],
+    candidates: [],
+  }, "front");
+  check("技能页正文命中不显示(所见即所搜)", skillListEl.children.length === 1
+    && skillListEl.children[0].children[0].textContent === "otter-frontend-change");
   renderMemory({ core: [{ key: "偏好", value: "x", reason: "", source_quote: "", updated_at: "" }], entries: [] }, "不存在词");
   check("记忆页搜索无命中→空态", coreListEl.children[0]._cl.has("conv-empty"));
   renderMemory({ core: [{ key: "偏好", value: "x", reason: "", source_quote: "", updated_at: "" }],

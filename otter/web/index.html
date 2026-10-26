@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
   <title>otter</title>
   <!-- 2026-09-22:版本查询串绕 WKWebView 静态缓存;marked(MIT)标准 markdown 渲染 -->
-  <link rel="stylesheet" href="style.css?v=20261026b" /><!-- 20261026b:技能页搜索框置顶单行样式(此前漏配规则吃浏览器默认) -->
+  <link rel="stylesheet" href="style.css?v=20261026c" /><!-- 20261026c:技能页搜索框移至"已转正"分节行上方独立成行 -->
 </head>
 <body>
   <!-- 左侧图标栏 -->
@@ -126,11 +126,12 @@
   <div class="page" id="page-skills">
     <div class="runs-head">
       <div class="panel-title">技能</div>
-      <input id="skillSearch" type="text" placeholder="搜索技能" autocomplete="off" /><!-- 2026-10-26 用户要求:置顶单行、适当宽度,不单独占一排 -->
       <span class="ws-tag" id="wsTagSkills" title="当前查看的工作区(在历史记录页切换)"></span>
       <button id="reloadSkills" title="刷新">↻</button>
     </div>
     <div id="skillsScroll">
+      <!-- 2026-10-26 用户要求:搜索框放"已转正"分节行上面(列表区顶部),单行适当宽度 -->
+      <input id="skillSearch" type="text" placeholder="搜索技能" autocomplete="off" />
       <div class="mem-sec">已转正 · 常驻注入 system</div>
       <div id="skillList"></div>
       <div class="mem-sec">候选 · 待确认(用 /skill accept 转正)</div>
@@ -145,6 +146,6 @@
 
   <footer id="statusbar">启动中…</footer>
   <script src="marked.min.js?v=1"></script>
-  <script src="app.js?v=20261026b"></script><!-- 20261026b:新增技能查看页(两区只读+搜索+展开);缓存号规则见 otter-frontend-change 技能 -->
+  <script src="app.js?v=20261026c"></script><!-- 20261026c:技能页过滤只匹配可见行(名称+描述),正文不进过滤面 -->
 </body>
 </html>

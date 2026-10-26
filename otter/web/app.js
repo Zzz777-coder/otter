@@ -1460,13 +1460,16 @@ $("#reloadArtifacts").addEventListener("click", loadArtifacts);
 let lastSkills = null;
 function renderSkills(sk, q = "") {
   const ql = (q || "").toLowerCase();
+  // 2026-10-26 真机反馈修正:过滤只匹配可见行(名称+描述)——此前正文也参与,
+  // 搜"front"时 release-flow 因正文里引用了 otter-frontend-change 而误显示
+  // (命中了看不见的字段)。所见即所搜,正文不进过滤面。
   const match = (...fields) =>
     !ql || fields.some((f) => (f || "").toLowerCase().includes(ql));
   const list = $("#skillList");
   list.innerHTML = "";
   let shown = 0;
   for (const s of (sk && sk.confirmed) || []) {
-    if (!match(s.name, s.description, s.body)) continue;
+    if (!match(s.name, s.description)) continue;
     shown++;
     const item = document.createElement("div");
     item.className = "mem-item";
@@ -1491,7 +1494,7 @@ function renderSkills(sk, q = "") {
   clist.innerHTML = "";
   let shownC = 0;
   for (const c of (sk && sk.candidates) || []) {
-    if (!match(c.name, c.description, c.procedure)) continue;
+    if (!match(c.name, c.description)) continue;  // 同上:正文(procedure)不进过滤面
     shownC++;
     const item = document.createElement("div");
     item.className = "mem-item skill-cand";  // skill-cand 标候选描边(与转正区分)
