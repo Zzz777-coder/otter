@@ -391,6 +391,9 @@ body {
 #memSearch:focus, #artSearch:focus { border-color: var(--accent); }
 #artList { flex: 1; overflow-y: auto; min-height: 0; }
 #memoryScroll { flex: 1; overflow-y: auto; min-height: 0; }
+/* 2026-10-26 真机暴露:技能页容器漏配本条(记忆/交付物页都有)——flex 列布局下
+   内容区不收缩不滚动,标题行"技能"被挤错位(用户对比记忆页发现);补齐同款规则 */
+#skillsScroll { flex: 1; overflow-y: auto; min-height: 0; }
 .mem-sec { color: var(--muted); font-weight: 700; font-size: 12px; margin: 14px 0 4px; }
 .mem-item { display: flex; flex-direction: column; gap: 3px; padding: 10px 4px;
   border-bottom: 1px solid var(--border); cursor: pointer; }
